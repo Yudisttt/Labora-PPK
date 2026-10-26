@@ -9,6 +9,13 @@ export const dummyUsers: User[] = [
     program: 'Asisten Laboratorium',
   },
   {
+    id: 'user-asisten-2',
+    name: 'Andhika Rama',
+    role: 'asisten',
+    identityNumber: 'NIP 199812152023011004',
+    program: 'Asisten Laboratorium',
+  },
+  {
     id: 'user-praktikan-1',
     name: 'Revalina Salwa',
     role: 'praktikan',
@@ -50,7 +57,7 @@ export const dummySchedules: Schedule[] = [
     date: '2026-10-26',
     startTime: '10:00',
     endTime: '12:00',
-    assistantId: 'user-asisten-1',
+    assistantId: 'user-asisten-2',
   },
   {
     id: 'schedule-3',
