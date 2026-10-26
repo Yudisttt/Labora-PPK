@@ -61,6 +61,28 @@ export function formatDateTime(value: string | null) {
   return `${formatDate(value)}, ${formatTime(value)}`;
 }
 
+export function formatTimeWithSeconds(value: string | null) {
+  if (!value) {
+    return '-';
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
+}
+
+export function formatDateTimeWithSeconds(value: string | null) {
+  if (!value) {
+    return '-';
+  }
+
+  return `${formatDate(value)}, ${formatTimeWithSeconds(value)}`;
+}
+
 export function initials(name: string) {
   return name
     .split(' ')
