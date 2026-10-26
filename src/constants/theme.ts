@@ -3,71 +3,56 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://unistyl.es/), etc.
  */
 
-import '@/global.css';
+import "@/global.css";
 
-import { Platform } from 'react-native';
+import { Platform } from "react-native";
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-    border: '#D7DAE0',
-    primary: '#208AEF',
-    primaryText: '#FFFFFF',
-    success: '#127A46',
-    successSoft: '#E4F6EC',
-    warning: '#8A5A00',
-    warningSoft: '#FFF3D6',
-    danger: '#B42318',
-    dangerSoft: '#FDECEA',
+    text: "#4C3D19",
+    background: "#E5D7C4",
+    backgroundElement: "#E5D7C4",
+    backgroundSelected: "#E5D7C4",
+    textSecondary: "#354024",
+    moss: "#889063",
+    border: "#889063",
+    primary: "#354024",
+    primaryText: "#E5D7C4",
+    success: "#354024",
+    successSoft: "#E5D7C4",
+    warning: "#4C3D19",
+    warningSoft: "#CFBB99",
+    danger: "#B42318",
+    dangerSoft: "#FDECEA",
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-    border: '#3A3D42',
-    primary: '#4DA3FF',
-    primaryText: '#06131F',
-    success: '#5DD39E',
-    successSoft: '#10281C',
-    warning: '#F0C24B',
-    warningSoft: '#33280B',
-    danger: '#FF7A70',
-    dangerSoft: '#3A1715',
+    text: "#4C3D19",
+    background: "#E5D7C4",
+    backgroundElement: "#E5D7C4",
+    backgroundSelected: "#E5D7C4",
+    textSecondary: "#354024",
+    moss: "#889063",
+    border: "#889063",
+    primary: "#354024",
+    primaryText: "#E5D7C4",
+    success: "#354024",
+    successSoft: "#E5D7C4",
+    warning: "#4C3D19",
+    warningSoft: "#CFBB99",
+    danger: "#B42318",
+    dangerSoft: "#FDECEA",
   },
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
-  },
-});
+export const Fonts = {
+  regular: "Poppins_400Regular",
+  medium: "Poppins_500Medium",
+  semiBold: "Poppins_600SemiBold",
+  bold: "Poppins_700Bold",
+  mono: Platform.select({ ios: "ui-monospace", default: "monospace" }),
+} as const;
 
 export const Spacing = {
   half: 2,
