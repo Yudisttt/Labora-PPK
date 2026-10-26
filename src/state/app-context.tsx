@@ -1,8 +1,10 @@
+
 import {
   createContext,
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -13,6 +15,7 @@ import {
   dummySessions,
   dummyUsers,
 } from '@/data/dummy';
+
 import type {
   AttendanceRecord,
   CheckInResult,
@@ -45,12 +48,21 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+
   const [sessions, setSessions] = useState<Session[]>(dummySessions);
+
   const [attendance, setAttendance] =
     useState<AttendanceRecord[]>(dummyAttendance);
 
+  // Menyimpan data presensi terbaru secara langsung.
+  // Digunakan agar pengecekan duplikasi tidak hanya bergantung
+  // pada state React yang pembaruannya asynchronous.
+  const attendanceRef = useRef<AttendanceRecord[]>(dummyAttendance);
+
   const selectUser = useCallback((userId: string) => {
-    setCurrentUser(dummyUsers.find((user) => user.id === userId) ?? null);
+    setCurrentUser(
+      dummyUsers.find((user) => user.id === userId) ?? null,
+    );
   }, []);
 
   const signOut = useCallback(() => {
@@ -88,25 +100,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const checkIn = useCallback(
     (sessionId: string, userId: string): CheckInResult => {
-      const session = sessions.find((item) => item.id === sessionId);
+      // Pastikan ada user yang sedang loginm dan ID yang melakukan check-in sesuai dengan user 
+      if (!currentUser || currentUser.id !== userId) {
+        return { ok: false, reason: 'unauthorized' };
+      }
+
+      // Pastikan user memiliki role praktikan
+      if (currentUser.role !== 'praktikan') {
+        return { ok: false, reason: 'invalid-role' };
+      }
+
+      // Pastikan sesi tersedia
+      const session = sessions.find(
+        (item) => item.id === sessionId,
+      );
 
       if (!session) {
         return { ok: false, reason: 'unknown-session' };
       }
 
+      // Pastikan sesi dibuka
       if (session.status !== 'open') {
         return { ok: false, reason: 'not-open' };
       }
 
-      const alreadyCheckedIn = attendance.some(
+      // Periksa apa praktikan sudah melakukan check-in, menggunakan ref agar langsung membaca data terbaru
+      const alreadyCheckedIn = attendanceRef.current.some(
         (record) =>
-          record.sessionId === sessionId && record.userId === userId,
+          record.sessionId === sessionId &&
+          record.userId === userId,
       );
 
       if (alreadyCheckedIn) {
         return { ok: false, reason: 'already-checked-in' };
       }
 
+      // Buat catatan presensi baru
       const record: AttendanceRecord = {
         id: `attendance-${sessionId}-${userId}`,
         sessionId,
@@ -114,11 +143,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         checkedInAt: new Date().toISOString(),
       };
 
-      setAttendance((prev) => [...prev, record]);
+      // Perbarui ref terlebih dahulu agar pemanggilan check-in berikutnya langsung mengetahui data terbaru
+      const updatedAttendance = [
+        ...attendanceRef.current,
+        record,
+      ];
+
+      attendanceRef.current = updatedAttendance;
+
+      // Perbarui state agar tampilan ikut berubah
+      setAttendance(updatedAttendance);
 
       return { ok: true, record };
     },
-    [attendance, sessions],
+    [currentUser, sessions],
   );
 
   const value = useMemo<AppContextValue>(() => {
@@ -126,7 +164,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dummyUsers.find((user) => user.id === userId);
 
     const getSchedule = (scheduleId: string) =>
-      dummySchedules.find((schedule) => schedule.id === scheduleId);
+      dummySchedules.find(
+        (schedule) => schedule.id === scheduleId,
+      );
 
     return {
       users: dummyUsers,
@@ -139,27 +179,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
       openSession,
       closeSession,
       checkIn,
+
       getUser,
+
       getSchedule,
+
       getScheduleForSession: (sessionId) => {
-        const session = sessions.find((item) => item.id === sessionId);
-        return session ? getSchedule(session.scheduleId) : undefined;
+        const session = sessions.find(
+          (item) => item.id === sessionId,
+        );
+
+        return session
+          ? getSchedule(session.scheduleId)
+          : undefined;
       },
+
       getSessionsForSchedule: (scheduleId) =>
-        sessions.filter((session) => session.scheduleId === scheduleId),
+        sessions.filter(
+          (session) => session.scheduleId === scheduleId,
+        ),
+
       hasCheckedIn: (sessionId, userId) =>
         attendance.some(
           (record) =>
-            record.sessionId === sessionId && record.userId === userId,
+            record.sessionId === sessionId &&
+            record.userId === userId,
         ),
+
       getAttendanceForSession: (sessionId) =>
         attendance
           .filter((record) => record.sessionId === sessionId)
-          .sort((a, b) => a.checkedInAt.localeCompare(b.checkedInAt)),
+          .sort((a, b) =>
+            a.checkedInAt.localeCompare(b.checkedInAt),
+          ),
+
       getAttendanceForUser: (userId) =>
         attendance
           .filter((record) => record.userId === userId)
-          .sort((a, b) => b.checkedInAt.localeCompare(a.checkedInAt)),
+          .sort((a, b) =>
+            b.checkedInAt.localeCompare(a.checkedInAt),
+          ),
     };
   }, [
     attendance,
@@ -172,14 +231,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     signOut,
   ]);
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      {children}
+    </AppContext.Provider>
+  );
 }
 
 export function useApp() {
   const context = useContext(AppContext);
 
   if (!context) {
-    throw new Error('useApp harus dipakai di dalam AppProvider');
+    throw new Error(
+      'useApp harus dipakai di dalam AppProvider',
+    );
   }
 
   return context;

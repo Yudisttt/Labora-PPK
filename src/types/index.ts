@@ -39,7 +39,9 @@ export type AttendanceRecord = {
 export type CheckInFailureReason =
   | 'unknown-session'
   | 'not-open'
-  | 'already-checked-in';
+  | 'already-checked-in'
+  | 'unauthorized'
+  | 'invalid-role';
 
 export type CheckInResult =
   | { ok: true; record: AttendanceRecord }
