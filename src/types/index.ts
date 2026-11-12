@@ -36,6 +36,18 @@ export type AttendanceRecord = {
   checkedInAt: string;
 };
 
+export type PermissionRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export type PermissionRequest = {
+  id: string;
+  sessionId: string;
+  userId: string;
+  userName: string;
+  reason: string;
+  status: PermissionRequestStatus;
+  submittedAt: string | null;
+};
+
 export type CheckInFailureReason =
   | 'unknown-session'
   | 'not-open'

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { router } from "expo-router";
 import {
   Alert,
   Modal,
@@ -181,6 +182,21 @@ export default function PraktikanJadwalScreen() {
             <ThemedText themeColor="textSecondary">
               Halo {currentUser?.name ?? "Praktikan"}.
             </ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                router.push("/praktikan/izin" as Parameters<typeof router.push>[0])
+              }
+              style={({ pressed }) => [
+                styles.permissionButton,
+                { backgroundColor: theme.primary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold" style={{ color: theme.primaryText }}>
+                Ajukan Izin
+              </ThemedText>
+            </Pressable>
           </View>
 
           {/* Statistik Cards */}
@@ -875,6 +891,12 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: Spacing.one,
+  },
+  permissionButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
   },
   statsRow: {
     flexDirection: "row",
