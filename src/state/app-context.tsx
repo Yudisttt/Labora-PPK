@@ -1,21 +1,21 @@
-
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
 
+import { dummySchedules, dummyUsers } from '@/data/dummy';
 import {
-  dummyAttendance,
-  dummySchedules,
-  dummySessions,
-  dummyUsers,
-} from '@/data/dummy';
-
+  checkIn as writeCheckIn,
+  closeSession as writeCloseSession,
+  openSession as writeOpenSession,
+  subscribeToAllAttendance,
+  subscribeToSessions,
+} from '@/services/sessions';
 import type {
   AttendanceRecord,
   CheckInResult,
@@ -32,9 +32,9 @@ type AppContextValue = {
   currentUser: User | null;
   selectUser: (userId: string) => void;
   signOut: () => void;
-  openSession: (sessionId: string) => void;
-  closeSession: (sessionId: string) => void;
-  checkIn: (sessionId: string, userId: string) => CheckInResult;
+  openSession: (sessionId: string) => Promise<void>;
+  closeSession: (sessionId: string) => Promise<void>;
+  checkIn: (sessionId: string, userId: string) => Promise<CheckInResult>;
   getUser: (userId: string) => User | undefined;
   getSchedule: (scheduleId: string) => Schedule | undefined;
   getScheduleForSession: (sessionId: string) => Schedule | undefined;
@@ -48,16 +48,28 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
 
-  const [sessions, setSessions] = useState<Session[]>(dummySessions);
+  // Sesi praktikum dibaca langsung dari Firestore dan diperbarui real-time
+  useEffect(() => {
+    const unsubscribe = subscribeToSessions(
+      setSessions,
+      (error) => console.warn('Gagal berlangganan sesi', error),
+    );
 
-  const [attendance, setAttendance] =
-    useState<AttendanceRecord[]>(dummyAttendance);
+    return unsubscribe;
+  }, []);
 
-  // Menyimpan data presensi terbaru secara langsung.
-  // Digunakan agar pengecekan duplikasi tidak hanya bergantung
-  // pada state React yang pembaruannya asynchronous.
-  const attendanceRef = useRef<AttendanceRecord[]>(dummyAttendance);
+  // Rekap presensi bersifat real-time lintas perangkat
+  useEffect(() => {
+    const unsubscribe = subscribeToAllAttendance(
+      setAttendance,
+      (error) => console.warn('Gagal berlangganan presensi', error),
+    );
+
+    return unsubscribe;
+  }, []);
 
   const selectUser = useCallback((userId: string) => {
     setCurrentUser(
@@ -69,38 +81,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setCurrentUser(null);
   }, []);
 
-  const openSession = useCallback((sessionId: string) => {
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === sessionId && session.status !== 'open'
-          ? {
-              ...session,
-              status: 'open',
-              openedAt: new Date().toISOString(),
-              closedAt: null,
-            }
-          : session,
-      ),
-    );
+  const openSession = useCallback(async (sessionId: string) => {
+    await writeOpenSession(sessionId);
   }, []);
 
-  const closeSession = useCallback((sessionId: string) => {
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === sessionId && session.status === 'open'
-          ? {
-              ...session,
-              status: 'closed',
-              closedAt: new Date().toISOString(),
-            }
-          : session,
-      ),
-    );
+  const closeSession = useCallback(async (sessionId: string) => {
+    await writeCloseSession(sessionId);
   }, []);
 
   const checkIn = useCallback(
-    (sessionId: string, userId: string): CheckInResult => {
-      // Pastikan ada user yang sedang loginm dan ID yang melakukan check-in sesuai dengan user 
+    async (
+      sessionId: string,
+      userId: string,
+    ): Promise<CheckInResult> => {
+      // Pastikan ada user yang sedang login dan ID-nya sesuai
       if (!currentUser || currentUser.id !== userId) {
         return { ok: false, reason: 'unauthorized' };
       }
@@ -110,53 +104,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ok: false, reason: 'invalid-role' };
       }
 
-      // Pastikan sesi tersedia
-      const session = sessions.find(
-        (item) => item.id === sessionId,
-      );
-
-      if (!session) {
-        return { ok: false, reason: 'unknown-session' };
-      }
-
-      // Pastikan sesi dibuka
-      if (session.status !== 'open') {
-        return { ok: false, reason: 'not-open' };
-      }
-
-      // Periksa apa praktikan sudah melakukan check-in, menggunakan ref agar langsung membaca data terbaru
-      const alreadyCheckedIn = attendanceRef.current.some(
-        (record) =>
-          record.sessionId === sessionId &&
-          record.userId === userId,
-      );
-
-      if (alreadyCheckedIn) {
-        return { ok: false, reason: 'already-checked-in' };
-      }
-
-      // Buat catatan presensi baru
-      const record: AttendanceRecord = {
-        id: `attendance-${sessionId}-${userId}`,
-        sessionId,
-        userId,
-        checkedInAt: new Date().toISOString(),
-      };
-
-      // Perbarui ref terlebih dahulu agar pemanggilan check-in berikutnya langsung mengetahui data terbaru
-      const updatedAttendance = [
-        ...attendanceRef.current,
-        record,
-      ];
-
-      attendanceRef.current = updatedAttendance;
-
-      // Perbarui state agar tampilan ikut berubah
-      setAttendance(updatedAttendance);
-
-      return { ok: true, record };
+      // Validasi sesi, status open, dan duplikasi dilakukan di Firestore
+      return writeCheckIn(sessionId, userId);
     },
-    [currentUser, sessions],
+    [currentUser],
   );
 
   const value = useMemo<AppContextValue>(() => {
