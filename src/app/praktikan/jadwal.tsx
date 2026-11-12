@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
@@ -95,7 +96,7 @@ export default function PraktikanJadwalScreen() {
     }
   }
 
-  function handleCheckIn(session: Session, schedule: Schedule) {
+  async function handleCheckIn(session: Session, schedule: Schedule) {
     if (!currentUser) return;
 
     if (session.status !== "open") {
@@ -114,7 +115,7 @@ export default function PraktikanJadwalScreen() {
       return;
     }
 
-    const result = checkIn(session.id, currentUser.id);
+    const result = await checkIn(session.id, currentUser.id);
 
     if (result.ok) {
       showMessage(
@@ -160,6 +161,22 @@ export default function PraktikanJadwalScreen() {
         >
           {/* Header Switcher Role & Akun */}
           <RoleSwitcher />
+
+          {/* Tombol kembali */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Kembali ke pemilihan peran"
+            onPress={() => router.replace("/")}
+            style={({ pressed }) => [
+              styles.backButton,
+              { borderColor: theme.border },
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              ← Kembali
+            </ThemedText>
+          </Pressable>
 
           {/* Feedback banner untuk web/mobile */}
           {feedbackMessage ? (
@@ -876,6 +893,13 @@ const styles = StyleSheet.create({
   header: {
     gap: Spacing.one,
   },
+  backButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
   statsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -901,10 +925,12 @@ const styles = StyleSheet.create({
   },
   tabContainer: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: Spacing.two,
   },
   tabButton: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 140,
     minHeight: 52,
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.two,
@@ -946,6 +972,8 @@ const styles = StyleSheet.create({
   },
   praktikumTitle: {
     fontSize: 18,
+    lineHeight: 24,
+    flexShrink: 1,
   },
   infoRow: {
     flexDirection: "row",
