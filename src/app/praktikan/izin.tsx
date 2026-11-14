@@ -15,8 +15,9 @@ import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/state/app-context';
+import { classifyPermissionReason } from '@/services/permission-sentiment';
 import { submitPermissionRequest, subscribeToPermissionRequestsForUser } from '@/services/permission-requests';
-import type { PermissionRequest, Session } from '@/types';
+import type { PermissionAiPrediction, PermissionRequest, Session } from '@/types';
 import { formatDate, formatDateTime } from '@/utils/format';
 
 const STATUS_LABELS = {
@@ -24,6 +25,24 @@ const STATUS_LABELS = {
   approved: 'Izin diterima',
   rejected: 'Izin ditolak',
 } as const;
+
+const SENTIMENT_LABELS = {
+  negatif: 'Negatif',
+  netral: 'Netral',
+  positif: 'Positif',
+} as const;
+
+function predictionLabel(prediction: PermissionAiPrediction) {
+  if (prediction.label) {
+    return SENTIMENT_LABELS[prediction.label];
+  }
+
+  if (prediction.status === 'error') {
+    return 'Model tidak dapat memproses alasan';
+  }
+
+  return 'Belum dapat dianalisis';
+}
 
 function getErrorMessage(error: unknown) {
   const code =
@@ -61,6 +80,7 @@ export default function PraktikanIzinScreen() {
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [aiPrediction, setAiPrediction] = useState<PermissionAiPrediction | null>(null);
 
   const availableSessions = useMemo(
     () => sessions.filter((session) => session.status !== 'closed'),
@@ -118,6 +138,8 @@ export default function PraktikanIzinScreen() {
 
     setSubmitting(true);
     setSubmitMessage(null);
+    const prediction = classifyPermissionReason(reason);
+    setAiPrediction(prediction);
 
     try {
       await submitPermissionRequest({
@@ -125,6 +147,7 @@ export default function PraktikanIzinScreen() {
         userId: currentUser.id,
         userName: currentUser.name,
         reason,
+        aiPrediction: prediction,
       });
       setReason('');
       setSelectedSessionId(null);
@@ -230,7 +253,10 @@ export default function PraktikanIzinScreen() {
             <TextInput
               accessibilityLabel="Alasan pengajuan izin"
               value={reason}
-              onChangeText={setReason}
+              onChangeText={(value) => {
+                setReason(value);
+                setAiPrediction(null);
+              }}
               placeholder="Ceritakan alasan kamu tidak dapat mengikuti praktikum..."
               placeholderTextColor={theme.textSecondary}
               multiline
@@ -245,6 +271,17 @@ export default function PraktikanIzinScreen() {
                 },
               ]}
             />
+
+            {aiPrediction ? (
+              <View style={[styles.aiBox, { backgroundColor: theme.warningSoft }]}>
+                <ThemedText type="smallBold">
+                  Klasifikasi alasan AI: {predictionLabel(aiPrediction)}
+                </ThemedText>
+                <ThemedText type="small">
+                  Hasil klasifikasi ini hanya informasi pendukung. Asisten tetap memeriksa alasan dan menentukan keputusan izin.
+                </ThemedText>
+              </View>
+            ) : null}
 
             {submitMessage ? (
               <View
@@ -338,6 +375,16 @@ export default function PraktikanIzinScreen() {
                       </View>
                       <ThemedText type="small">{request.reason}</ThemedText>
                       <ThemedText type="small" themeColor="textSecondary">
+                        {request.aiPrediction?.modelVersion === 'permission-reason-v1'
+                          ? `Klasifikasi alasan: ${predictionLabel(request.aiPrediction)}`
+                          : request.aiPrediction
+                            ? `Sentimen EDOM versi lama: ${predictionLabel(request.aiPrediction)}`
+                            : 'Klasifikasi alasan: Belum tersedia'}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        Prediksi hanya informasi pendukung; keputusan ditentukan asisten.
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
                         Diajukan: {formatDateTime(request.submittedAt)}
                       </ThemedText>
                     </View>
@@ -396,6 +443,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   messageBox: { padding: Spacing.two, borderRadius: Spacing.two },
+  aiBox: { padding: Spacing.two, borderRadius: Spacing.two, gap: Spacing.one },
   submitButton: {
     minHeight: 50,
     alignItems: 'center',

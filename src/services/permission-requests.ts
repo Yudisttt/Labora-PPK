@@ -12,13 +12,18 @@ import {
 } from 'firebase/firestore';
 
 import { db } from '@/services/firebase';
-import type { PermissionRequest } from '@/types';
+import type {
+  PermissionAiPrediction,
+  PermissionRequest,
+  ReasonAssessmentLabel,
+} from '@/types';
 
 type PermissionRequestDocument = {
   sessionId?: unknown;
   userId?: unknown;
   userName?: unknown;
   reason?: unknown;
+  aiPrediction?: unknown;
   status?: unknown;
   submittedAt?: unknown;
 };
@@ -28,6 +33,7 @@ export type NewPermissionRequest = {
   userId: string;
   userName: string;
   reason: string;
+  aiPrediction: PermissionAiPrediction;
 };
 
 function toIsoString(value: unknown): string | null {
@@ -56,14 +62,59 @@ function toPermissionRequest(
       ? data.status
       : 'pending';
 
+  const aiPrediction = toAiPrediction(data.aiPrediction);
+
   return {
     id,
     sessionId: data.sessionId,
     userId: data.userId,
     userName: data.userName,
     reason: data.reason,
+    aiPrediction,
     status,
     submittedAt: toIsoString(data.submittedAt),
+  };
+}
+
+function toAiPrediction(value: unknown): PermissionAiPrediction | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const validLabels: (ReasonAssessmentLabel | null)[] = [
+    'negatif',
+    'netral',
+    'positif',
+    null,
+  ];
+  const validStatuses = [
+    'predicted',
+    'unknown_vocabulary',
+    'empty_input',
+    'error',
+  ];
+  const validScoreTypes = ['none', 'decision_margin', 'log_score'];
+  const modelVersion =
+    candidate.modelVersion === 'permission-reason-v1'
+      ? 'permission-reason-v1'
+      : 'edom-sentiment-v1';
+
+  if (
+    !validLabels.includes(candidate.label as ReasonAssessmentLabel | null) ||
+    !validStatuses.includes(String(candidate.status)) ||
+    !validScoreTypes.includes(String(candidate.scoreType)) ||
+    typeof candidate.experimental !== 'boolean'
+  ) {
+    return null;
+  }
+
+  return {
+    label: candidate.label as ReasonAssessmentLabel | null,
+    status: candidate.status as PermissionAiPrediction['status'],
+    experimental: candidate.experimental,
+    scoreType: candidate.scoreType as PermissionAiPrediction['scoreType'],
+    modelVersion,
   };
 }
 
@@ -120,6 +171,7 @@ export async function submitPermissionRequest(
     userId: input.userId,
     userName: input.userName.trim(),
     reason,
+    aiPrediction: input.aiPrediction,
     status: 'pending',
     submittedAt: serverTimestamp(),
   });
