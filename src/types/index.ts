@@ -52,6 +52,8 @@ export type PermissionAiPrediction = {
   modelVersion: 'edom-sentiment-v1' | 'permission-reason-v1';
 };
 
+export type PermissionDecision = 'approved' | 'rejected';
+
 export type PermissionRequest = {
   id: string;
   sessionId: string;
@@ -61,6 +63,8 @@ export type PermissionRequest = {
   aiPrediction: PermissionAiPrediction | null;
   status: PermissionRequestStatus;
   submittedAt: string | null;
+  decisionBy: string | null;
+  decisionAt: string | null;
 };
 
 export type CheckInFailureReason =

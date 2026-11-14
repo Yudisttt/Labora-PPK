@@ -4,6 +4,8 @@ import {
   collection,
   onSnapshot,
   query,
+  doc,
+  runTransaction,
   serverTimestamp,
   where,
   type DocumentData,
@@ -26,6 +28,8 @@ type PermissionRequestDocument = {
   aiPrediction?: unknown;
   status?: unknown;
   submittedAt?: unknown;
+  decisionBy?: unknown;
+  decisionAt?: unknown;
 };
 
 export type NewPermissionRequest = {
@@ -73,6 +77,9 @@ function toPermissionRequest(
     aiPrediction,
     status,
     submittedAt: toIsoString(data.submittedAt),
+    decisionBy:
+      typeof data.decisionBy === 'string' ? data.decisionBy : null,
+    decisionAt: toIsoString(data.decisionAt),
   };
 }
 
@@ -147,6 +154,47 @@ export function subscribeToPermissionRequestsForUser(
     (snapshot) => onData(collectPermissionRequests(snapshot)),
     (error) => onError(error),
   );
+}
+
+export function subscribeToAllPermissionRequests(
+  onData: (requests: PermissionRequest[]) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  return onSnapshot(
+    collection(db, 'permissionRequests'),
+    (snapshot) => onData(collectPermissionRequests(snapshot)),
+    (error) => onError(error),
+  );
+}
+
+export async function decidePermissionRequest(
+  requestId: string,
+  decision: 'approved' | 'rejected',
+  assistantId: string,
+): Promise<void> {
+  if (!requestId || !assistantId) {
+    throw new Error('Identitas pengajuan atau asisten belum tersedia.');
+  }
+
+  const requestRef = doc(db, 'permissionRequests', requestId);
+
+  await runTransaction(db, async (transaction) => {
+    const requestSnapshot = await transaction.get(requestRef);
+
+    if (!requestSnapshot.exists()) {
+      throw new Error('Pengajuan izin tidak ditemukan.');
+    }
+
+    if (requestSnapshot.data().status !== 'pending') {
+      throw new Error('Pengajuan ini sudah diputuskan oleh asisten lain.');
+    }
+
+    transaction.update(requestRef, {
+      status: decision,
+      decisionBy: assistantId,
+      decisionAt: serverTimestamp(),
+    });
+  });
 }
 
 export async function submitPermissionRequest(

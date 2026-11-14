@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   Modal,
@@ -342,6 +343,19 @@ export default function AsistenJadwalScreen() {
               {' '}({currentUser?.identityNumber}). Kelola sesi praktikum dan
               pantau kehadiran praktikan secara langsung.
             </ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/asisten/izin' as Parameters<typeof router.push>[0])}
+              style={({ pressed }) => [
+                styles.permissionRequestsButton,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                Periksa pengajuan izin
+              </ThemedText>
+            </Pressable>
           </View>
 
           {/* Stat Cards Row (SRS-04) */}
@@ -2419,6 +2433,14 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  permissionRequestsButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    marginTop: Spacing.two,
   },
   feedbackToast: {
     paddingVertical: Spacing.two,
