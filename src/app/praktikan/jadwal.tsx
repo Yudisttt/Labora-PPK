@@ -993,6 +993,7 @@ export default function PraktikanJadwalScreen() {
                       <View
                         style={[
                           styles.modalCheckedInBanner,
+                          styles.excusedStatusBanner,
                           { backgroundColor: theme.warningSoft },
                         ]}>
                         <ThemedText
@@ -1372,9 +1373,13 @@ const styles = StyleSheet.create({
   },
   modalCheckedInBanner: {
     paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+  },
+  excusedStatusBanner: {
+    marginTop: Spacing.three,
   },
   modalCloseButton: {
     paddingVertical: Spacing.three,
