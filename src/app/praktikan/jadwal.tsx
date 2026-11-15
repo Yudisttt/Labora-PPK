@@ -1,5 +1,6 @@
 import { router } from "expo-router";
 import { useState } from "react";
+import { router } from "expo-router";
 import {
   Alert,
   Modal,
@@ -211,6 +212,21 @@ export default function PraktikanJadwalScreen() {
             <ThemedText type="subtitle" style={[styles.headerTitleText, { color: '#FFFFFF' }]}>
               Halo, {currentUser?.name ?? "Praktikan"}
             </ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                router.push("/praktikan/izin" as Parameters<typeof router.push>[0])
+              }
+              style={({ pressed }) => [
+                styles.permissionButton,
+                { backgroundColor: theme.primary },
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold" style={{ color: theme.primaryText }}>
+                Ajukan Izin
+              </ThemedText>
+            </Pressable>
             <View style={styles.headerUserPill}>
               <ThemedText type="small" style={{ color: '#FFFFFF', opacity: 0.95 }}>
                 Lihat jadwal & presensi saya
@@ -1029,6 +1045,11 @@ const styles = StyleSheet.create({
   header: {
     gap: Spacing.one,
   },
+  permissionButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: Spacing.two,
   backButton: {
     alignSelf: "flex-start",
     paddingHorizontal: Spacing.three,

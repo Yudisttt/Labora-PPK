@@ -377,6 +377,19 @@ export default function AsistenJadwalScreen() {
             <ThemedText type="subtitle" style={[styles.headerTitle, { color: '#FFFFFF', fontSize: 28, lineHeight: 36, fontWeight: '700' }]}>
               Halo, {currentUser?.name ?? "Asisten Lab"}
             </ThemedText>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/asisten/izin' as Parameters<typeof router.push>[0])}
+              style={({ pressed }) => [
+                styles.permissionRequestsButton,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                pressed && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                Periksa pengajuan izin
+              </ThemedText>
+            </Pressable>
             <View style={styles.headerUserPill}>
               <ThemedText style={{ color: '#FFFFFF', fontSize: 13, opacity: 0.95 }}>
                 Kelola sesi praktikum dan pantau kehadiran mahasiswa
@@ -2574,6 +2587,14 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  permissionRequestsButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    marginTop: Spacing.two,
   },
   feedbackToast: {
     paddingVertical: Spacing.two,
