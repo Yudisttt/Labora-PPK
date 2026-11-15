@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
 import { router } from 'expo-router';
+import { useMemo, useState } from 'react';
+import { createSession } from '@/services/sessions';
 import {
   Modal,
   Platform,
@@ -155,27 +156,43 @@ export default function AsistenJadwalScreen() {
     });
   }
 
-  function executeConfirmedAction() {
+  async function handleCreateSession(scheduleId: string) {
+    try {
+      await createSession(scheduleId);
+      showToast(
+        'Sesi berhasil dibuat. Tekan "Buka Sesi Presensi" untuk memulai presensi.',
+      );
+    } catch {
+      showToast('Gagal membuat sesi. Periksa koneksi lalu coba lagi.');
+    }
+  }
+
+  async function executeConfirmedAction() {
     if (!confirmAction) return;
 
     const { type, session, schedule } = confirmAction;
 
-    if (type === 'open' || type === 'reopen') {
-      openSession(session.id);
-      showToast(
-        type === 'open'
-          ? `Sesi ${schedule.praktikum} (${schedule.kelas}) berhasil dibuka! Praktikan kini dapat melakukan presensi.`
-          : `Sesi ${schedule.praktikum} (${schedule.kelas}) berhasil dibuka kembali.`,
-      );
-    } else if (type === 'close') {
-      closeSession(session.id);
-      showToast(
-        `Sesi ${schedule.praktikum} (${schedule.kelas}) berhasil ditutup. Praktikan tidak dapat lagi presensi.`,
-      );
+    try {
+      if (type === 'open' || type === 'reopen') {
+        await openSession(session.id);
+        showToast(
+          type === 'open'
+            ? `Sesi ${schedule.praktikum} (${schedule.kelas}) berhasil dibuka! Praktikan kini dapat melakukan presensi.`
+            : `Sesi ${schedule.praktikum} (${schedule.kelas}) berhasil dibuka kembali.`,
+        );
+      } else if (type === 'close') {
+        await closeSession(session.id);
+        showToast(
+          `Sesi ${schedule.praktikum} (${schedule.kelas}) berhasil ditutup. Praktikan tidak dapat lagi presensi.`,
+        );
+      }
+    } catch {
+      showToast('Gagal memperbarui sesi. Periksa koneksi lalu coba lagi.');
+    } finally {
+      setConfirmAction(null);
     }
-
-    setConfirmAction(null);
   }
+
 
   // Build attendance data for a given session (SRS-06)
   function getSessionAttendanceData(session: Session) {
@@ -309,6 +326,21 @@ export default function AsistenJadwalScreen() {
           keyboardShouldPersistTaps="handled">
           {/* Role Switcher */}
           <RoleSwitcher />
+
+          {/* Tombol kembali */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Kembali ke pemilihan peran"
+            onPress={() => router.replace('/')}
+            style={({ pressed }) => [
+              styles.backButton,
+              { borderColor: theme.border },
+              pressed && styles.pressed,
+            ]}>
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              ← Kembali
+            </ThemedText>
+          </Pressable>
 
           {/* Feedback Toast */}
           {feedbackToast ? (
@@ -1049,6 +1081,22 @@ export default function AsistenJadwalScreen() {
                               Detail & Rekap
                             </ThemedText>
                           </Pressable>
+                          {!session && (
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() => handleCreateSession(schedule.id)}
+                              style={({ pressed }) => [
+                                styles.sessionActionButton,
+                                { backgroundColor: theme.primary },
+                                pressed && styles.pressed,
+                              ]}>
+                              <ThemedText
+                                type="smallBold"
+                                style={{ color: theme.primaryText }}>
+                                Buat Sesi
+                              </ThemedText>
+                            </Pressable>
+                          )}
 
                           {/* Quick Session Toggle Button (SRS-05) */}
                           {session && (
@@ -1100,8 +1148,8 @@ export default function AsistenJadwalScreen() {
                                   style={({ pressed }) => [
                                     styles.sessionActionButton,
                                     {
-                                      backgroundColor: theme.moss,
-                                      borderColor: theme.border,
+                                      backgroundColor: theme.primary,
+                                      borderColor: theme.primary,
                                       borderWidth: 1,
                                     },
                                     pressed && styles.pressed,
@@ -1114,6 +1162,7 @@ export default function AsistenJadwalScreen() {
                                 </Pressable>
                               )}
                             </>
+                            
                           )}
                         </View>
                       </ThemedView>
@@ -2502,6 +2551,13 @@ const styles = StyleSheet.create({
   header: {
     gap: Spacing.half,
   },
+  backButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
   headerBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.three,
@@ -2512,8 +2568,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.45)',
   },
   headerTitle: {
-    fontSize: 26,
-    lineHeight: 34,
+    fontSize: 22,
+    lineHeight: 28,
   },
   headerSubtitle: {
     fontSize: 14,
@@ -2570,23 +2626,18 @@ const styles = StyleSheet.create({
   },
   tabNavContainer: {
     flexDirection: 'row',
-    padding: Spacing.half,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    gap: Spacing.half,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
+    flexWrap: 'wrap',
+    gap: Spacing.two,
   },
   tabNavButton: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: 150,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 46,
+    minHeight: 44,
     paddingHorizontal: Spacing.two,
-    borderRadius: 18,
+    paddingVertical: Spacing.two,
+    borderRadius: 12,
   },
   tabContent: {
     gap: Spacing.three,
