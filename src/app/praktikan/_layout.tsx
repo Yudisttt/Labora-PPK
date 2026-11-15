@@ -1,9 +1,14 @@
 import { Redirect, Stack } from 'expo-router';
+import { ActivityIndicator } from 'react-native';
 
-import { useApp } from '@/state/app-context';
+import { useAuth } from '@/state/auth-context';
 
 export default function PraktikanLayout() {
-  const { currentUser } = useApp();
+  const { currentUser, loading } = useAuth();
+
+  if (loading) {
+    return <ActivityIndicator />;
+  }
 
   if (!currentUser || currentUser.role !== 'praktikan') {
     return <Redirect href="/" />;

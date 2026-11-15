@@ -1,21 +1,21 @@
-
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
 
+import { dummySchedules, dummyUsers } from '@/data/dummy';
 import {
-  dummyAttendance,
-  dummySchedules,
-  dummySessions,
-  dummyUsers,
-} from '@/data/dummy';
-
+  checkIn as writeCheckIn,
+  closeSession as writeCloseSession,
+  openSession as writeOpenSession,
+  subscribeToAllAttendance,
+  subscribeToSessions,
+} from '@/services/sessions';
 import type {
   AttendanceRecord,
   CheckInResult,
@@ -32,9 +32,9 @@ type AppContextValue = {
   currentUser: User | null;
   selectUser: (userId: string) => void;
   signOut: () => void;
-  openSession: (sessionId: string) => void;
-  closeSession: (sessionId: string) => void;
-  checkIn: (sessionId: string, userId: string) => CheckInResult;
+  openSession: (sessionId: string) => Promise<void>;
+  closeSession: (sessionId: string) => Promise<void>;
+  checkIn: (sessionId: string, userId: string) => Promise<CheckInResult>;
   getUser: (userId: string) => User | undefined;
   getSchedule: (scheduleId: string) => Schedule | undefined;
   getScheduleForSession: (sessionId: string) => Schedule | undefined;
@@ -48,59 +48,167 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
 
-  const [sessions, setSessions] = useState<Session[]>(dummySessions);
-
-  const [attendance, setAttendance] =
-    useState<AttendanceRecord[]>(dummyAttendance);
-
-  // Menyimpan data presensi terbaru secara langsung.
-  // Digunakan agar pengecekan duplikasi tidak hanya bergantung
-  // pada state React yang pembaruannya asynchronous.
-  const attendanceRef = useRef<AttendanceRecord[]>(dummyAttendance);
-
-  const selectUser = useCallback((userId: string) => {
-    setCurrentUser(
-      dummyUsers.find((user) => user.id === userId) ?? null,
+  // Sesi praktikum dibaca langsung dari Firestore dan diperbarui real-time
+  useEffect(() => {
+    const unsubscribe = subscribeToSessions(
+      setSessions,
+      (error) => console.warn('Gagal berlangganan sesi', error),
     );
+
+    return unsubscribe;
   }, []);
 
-  const signOut = useCallback(() => {
-    setCurrentUser(null);
+  // Rekap presensi bersifat real-time lintas perangkat
+  useEffect(() => {
+    const unsubscribe = subscribeToAllAttendance(
+      setAttendance,
+      (error) => console.warn('Gagal berlangganan presensi', error),
+    );
+
+    return unsubscribe;
   }, []);
 
-  const openSession = useCallback((sessionId: string) => {
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === sessionId && session.status !== 'open'
-          ? {
-              ...session,
-              status: 'open',
-              openedAt: new Date().toISOString(),
+    function receiveSchedules(nextSchedules: Schedule[]) {
+      if (!active) {
+        return;
+      }
+
+      const sameOwner = dataOwnerUserId.current === user.id;
+      dataOwnerUserId.current = user.id;
+      setDataUserId(user.id);
+      if (
+        !sameOwner &&
+        (user.role !== 'asisten' ||
+          profileOwnerUserId.current !== user.id)
+      ) {
+        setUsers([user]);
+      }
+
+      setSchedules(nextSchedules);
+      setSessions((previousSessions) => {
+        const byScheduleId = new Map(
+          (sameOwner ? previousSessions : []).map((session) => [
+            session.scheduleId,
+            session,
+          ]),
+        );
+
+        return nextSchedules.map(
+          (schedule) =>
+            byScheduleId.get(schedule.id) ?? {
+              id: `session-${schedule.id}`,
+              scheduleId: schedule.id,
+              status: 'scheduled',
+              openedAt: null,
               closedAt: null,
+            },
+        );
+      });
+
+      const sessionIds = new Set(
+        nextSchedules.map((schedule) => `session-${schedule.id}`),
+      );
+      const nextAttendance = (sameOwner ? attendanceRef.current : []).filter(
+        (record) => sessionIds.has(record.sessionId),
+      );
+      attendanceRef.current = nextAttendance;
+      setAttendance(nextAttendance);
+    }
+
+    try {
+      subscriptions.push(
+        user.role === 'asisten'
+          ? listenSchedules(receiveSchedules, handleError)
+          : listenSchedulesForUser(
+              user.id,
+              receiveSchedules,
+              handleError,
+            ),
+      );
+
+      if (user.role === 'asisten') {
+        let praktikanProfiles: User[] = [];
+        let assistantProfiles: User[] = [];
+        const updateProfiles = () => {
+          profileOwnerUserId.current = user.id;
+          const uniqueProfiles = new Map(
+            [...praktikanProfiles, ...assistantProfiles, user].map(
+              (user) => [user.id, user],
+            ),
+          );
+          setUsers([...uniqueProfiles.values()]);
+        };
+
+        subscriptions.push(
+          listenPraktikanProfiles((profiles) => {
+            if (active) {
+              praktikanProfiles = profiles;
+              updateProfiles();
             }
-          : session,
-      ),
-    );
+          }, handleError),
+          listenAssistantProfiles((profiles) => {
+            if (active) {
+              assistantProfiles = profiles;
+              updateProfiles();
+            }
+          }, handleError),
+        );
+      }
+    } catch (subscriptionError) {
+      handleError(
+        subscriptionError instanceof Error
+          ? subscriptionError
+          : new Error('Tidak dapat memulai pemuatan data Firebase.'),
+      );
+    }
+
+    return () => {
+      active = false;
+      subscriptions.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [currentUser]);
+
+  const currentUserDataIsLoaded =
+    currentUser !== null && dataUserId === currentUser.id;
+  const visibleUsers = useMemo(
+    () =>
+      currentUserDataIsLoaded
+        ? users
+        : currentUser
+          ? [currentUser]
+          : [],
+    [currentUser, currentUserDataIsLoaded, users],
+  );
+  const visibleSchedules = useMemo(
+    () => (currentUserDataIsLoaded ? schedules : []),
+    [currentUserDataIsLoaded, schedules],
+  );
+  const visibleSessions = useMemo(
+    () => (currentUserDataIsLoaded ? sessions : []),
+    [currentUserDataIsLoaded, sessions],
+  );
+  const visibleAttendance = useMemo(
+    () => (currentUserDataIsLoaded ? attendance : []),
+    [attendance, currentUserDataIsLoaded],
+  );
+
+  const openSession = useCallback(async (sessionId: string) => {
+    await writeOpenSession(sessionId);
   }, []);
 
-  const closeSession = useCallback((sessionId: string) => {
-    setSessions((prev) =>
-      prev.map((session) =>
-        session.id === sessionId && session.status === 'open'
-          ? {
-              ...session,
-              status: 'closed',
-              closedAt: new Date().toISOString(),
-            }
-          : session,
-      ),
-    );
+  const closeSession = useCallback(async (sessionId: string) => {
+    await writeCloseSession(sessionId);
   }, []);
 
   const checkIn = useCallback(
-    (sessionId: string, userId: string): CheckInResult => {
-      // Pastikan ada user yang sedang loginm dan ID yang melakukan check-in sesuai dengan user 
+    async (
+      sessionId: string,
+      userId: string,
+    ): Promise<CheckInResult> => {
+      // Pastikan ada user yang sedang login dan ID-nya sesuai
       if (!currentUser || currentUser.id !== userId) {
         return { ok: false, reason: 'unauthorized' };
       }
@@ -110,72 +218,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ok: false, reason: 'invalid-role' };
       }
 
-      // Pastikan sesi tersedia
-      const session = sessions.find(
-        (item) => item.id === sessionId,
-      );
-
-      if (!session) {
-        return { ok: false, reason: 'unknown-session' };
-      }
-
-      // Pastikan sesi dibuka
-      if (session.status !== 'open') {
-        return { ok: false, reason: 'not-open' };
-      }
-
-      // Periksa apa praktikan sudah melakukan check-in, menggunakan ref agar langsung membaca data terbaru
-      const alreadyCheckedIn = attendanceRef.current.some(
-        (record) =>
-          record.sessionId === sessionId &&
-          record.userId === userId,
-      );
-
-      if (alreadyCheckedIn) {
-        return { ok: false, reason: 'already-checked-in' };
-      }
-
-      // Buat catatan presensi baru
-      const record: AttendanceRecord = {
-        id: `attendance-${sessionId}-${userId}`,
-        sessionId,
-        userId,
-        checkedInAt: new Date().toISOString(),
-      };
-
-      // Perbarui ref terlebih dahulu agar pemanggilan check-in berikutnya langsung mengetahui data terbaru
-      const updatedAttendance = [
-        ...attendanceRef.current,
-        record,
-      ];
-
-      attendanceRef.current = updatedAttendance;
-
-      // Perbarui state agar tampilan ikut berubah
-      setAttendance(updatedAttendance);
-
-      return { ok: true, record };
+      // Validasi sesi, status open, dan duplikasi dilakukan di Firestore
+      return writeCheckIn(sessionId, userId);
     },
-    [currentUser, sessions],
+    [currentUser],
   );
 
   const value = useMemo<AppContextValue>(() => {
     const getUser = (userId: string) =>
-      dummyUsers.find((user) => user.id === userId);
+      visibleUsers.find((user) => user.id === userId);
 
     const getSchedule = (scheduleId: string) =>
-      dummySchedules.find(
-        (schedule) => schedule.id === scheduleId,
-      );
+      visibleSchedules.find((schedule) => schedule.id === scheduleId);
 
     return {
-      users: dummyUsers,
-      schedules: dummySchedules,
-      sessions,
-      attendance,
+      users: visibleUsers,
+      schedules: visibleSchedules,
+      sessions: visibleSessions,
+      attendance: visibleAttendance,
       currentUser,
-      selectUser,
-      signOut,
       openSession,
       closeSession,
       checkIn,
@@ -185,7 +246,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getSchedule,
 
       getScheduleForSession: (sessionId) => {
-        const session = sessions.find(
+        const session = visibleSessions.find(
           (item) => item.id === sessionId,
         );
 
@@ -195,40 +256,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       getSessionsForSchedule: (scheduleId) =>
-        sessions.filter(
+        visibleSessions.filter(
           (session) => session.scheduleId === scheduleId,
         ),
 
       hasCheckedIn: (sessionId, userId) =>
-        attendance.some(
+        visibleAttendance.some(
           (record) =>
             record.sessionId === sessionId &&
             record.userId === userId,
         ),
 
       getAttendanceForSession: (sessionId) =>
-        attendance
+        visibleAttendance
           .filter((record) => record.sessionId === sessionId)
           .sort((a, b) =>
             a.checkedInAt.localeCompare(b.checkedInAt),
           ),
 
       getAttendanceForUser: (userId) =>
-        attendance
+        visibleAttendance
           .filter((record) => record.userId === userId)
           .sort((a, b) =>
             b.checkedInAt.localeCompare(a.checkedInAt),
           ),
     };
   }, [
-    attendance,
     checkIn,
     closeSession,
     currentUser,
     openSession,
-    selectUser,
-    sessions,
-    signOut,
+    visibleAttendance,
+    visibleSchedules,
+    visibleSessions,
+    visibleUsers,
   ]);
 
   return (

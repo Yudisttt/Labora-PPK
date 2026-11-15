@@ -1,223 +1,290 @@
-import { router } from "expo-router";
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-import { Fonts, Spacing } from "@/constants/theme";
-import { useTheme } from "@/hooks/use-theme";
-import { useApp } from "@/state/app-context";
-import type { Role } from "@/types";
-import { initials } from "@/utils/format";
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import { useAuth } from '@/state/auth-context';
 
-const ROLE_OPTIONS: { role: Role; title: string }[] = [
-  {
-    role: "praktikan",
-    title: "Praktikan",
-  },
-  {
-    role: "asisten",
-    title: "Asisten",
-  },
-];
-
-export default function RoleSelectionScreen() {
+export default function AuthScreen() {
   const theme = useTheme();
-  const { users, selectUser } = useApp();
-  const [role, setRole] = useState<Role>("praktikan");
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const { currentUser, loading, error, signIn, register } = useAuth();
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [identityNumber, setIdentityNumber] = useState('');
+  const [program, setProgram] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const roleUsers = useMemo(
-    () => users.filter((user) => user.role === role),
-    [role, users],
-  );
+  useEffect(() => {
+    if (!loading && currentUser) {
+      router.replace(
+        currentUser.role === 'asisten' ? '/asisten/jadwal' : '/praktikan/jadwal',
+      );
+    }
+  }, [currentUser, loading]);
 
-  const selectedUser =
-    roleUsers.find((user) => user.id === selectedUserId) ??
-    roleUsers[0] ??
-    null;
+  async function handleSubmit() {
+    setFormError(null);
+    const normalizedEmail = email.trim();
 
-  function handleSubmit() {
-    if (!selectedUser) {
+    if (!normalizedEmail || !password) {
+      setFormError('Email dan kata sandi wajib diisi.');
       return;
     }
 
-    selectUser(selectedUser.id);
-    router.replace(
-      selectedUser.role === "asisten" ? "/asisten/jadwal" : "/praktikan/jadwal",
-    );
+    if (isRegistering) {
+      if (!name.trim() || !identityNumber.trim() || !program.trim()) {
+        setFormError('Lengkapi nama, nomor identitas, dan program studi.');
+        return;
+      }
+
+      if (password.length < 6) {
+        setFormError('Kata sandi harus terdiri dari minimal 6 karakter.');
+        return;
+      }
+    }
+
+    setSubmitting(true);
+
+    try {
+      if (isRegistering) {
+        await register({
+          name,
+          email: normalizedEmail,
+          password,
+          identityNumber,
+          program,
+        });
+      } else {
+        await signIn(normalizedEmail, password);
+      }
+    } catch (submitError) {
+      setFormError(
+        submitError instanceof Error
+          ? submitError.message
+          : 'Tidak dapat menyelesaikan autentikasi. Coba lagi.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <ThemedView style={styles.screen}>
-      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-        <ScrollView
-          style={[styles.scrollView, { backgroundColor: theme.background }]}
-          contentContainerStyle={styles.content}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={[styles.hero, { backgroundColor: theme.primary }]}>
-            <ThemedText
-              type="smallBold"
-              style={[styles.heroEyebrow, { color: theme.backgroundElement }]}
-            >
-              PRAKTIKUM
-            </ThemedText>
-            <ThemedText
-              type="title"
-              style={[styles.heroTitle, { color: theme.background }]}
-            >
-              Presensi{"\n"}Praktikum
-            </ThemedText>
-            <ThemedText
-              style={[styles.heroSubtitle, { color: theme.backgroundElement }]}
-            >
-              Pilih peran dan identitas untuk masuk.
-            </ThemedText>
-          </View>
-
-          <View style={[styles.form, { backgroundColor: theme.background }]}>
-            <View style={styles.section}>
-              <ThemedText type="smallBold">Peran</ThemedText>
-
-              <View style={styles.roleRow}>
-                {ROLE_OPTIONS.map((option) => {
-                  const active = option.role === role;
-
-                  return (
-                    <Pressable
-                      key={option.role}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                      onPress={() => setRole(option.role)}
-                      style={({ pressed }) => [
-                        styles.roleCard,
-                        {
-                          backgroundColor: active
-                            ? theme.primary
-                            : theme.background,
-                          borderColor: active ? theme.primary : theme.border,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <ThemedText
-                        type="smallBold"
-                        style={{
-                          color: active ? theme.primaryText : theme.text,
-                        }}
-                      >
-                        {option.title}
-                      </ThemedText>
-                    </Pressable>
-                  );
-                })}
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled">
+            {/* Tinted Green Glass Hero Banner */}
+            <View
+              style={[
+                styles.heroGlassCard,
+                {
+                  backgroundColor: 'rgba(53, 64, 36, 0.75)',
+                  borderColor: 'rgba(255, 255, 255, 0.35)',
+                },
+              ]}>
+              <View style={styles.heroBadge}>
+                <ThemedText
+                  type="smallBold"
+                  style={{ color: theme.primaryText, letterSpacing: 1.5, fontSize: 11 }}>
+                  LABORA
+                </ThemedText>
               </View>
+              <ThemedText
+                type="title"
+                style={[styles.heroTitle, { color: theme.primaryText }]}>
+                Platform Praktikum
+              </ThemedText>
+              <ThemedText
+                style={[styles.heroSubtitle, { color: theme.primaryText }]}>
+                Masuk ke akunmu untuk mengelola jadwal dan kehadiran praktikum.
+              </ThemedText>
             </View>
 
-            <View style={styles.section}>
-              <ThemedText type="smallBold">Identitas</ThemedText>
+            {/* Tinted Glass Form Card */}
+            <View
+              style={[
+                styles.glassFormCard,
+                {
+                  backgroundColor: 'rgba(136, 144, 99, 0.16)',
+                  borderColor: 'rgba(136, 144, 99, 0.32)',
+                },
+              ]}>
+              <View style={styles.cardTopHighlight} />
+              <View style={styles.heading}>
+                <ThemedText type="subtitle" style={styles.headingTitle}>
+                  {isRegistering ? 'Buat Akun Praktikan' : 'Selamat Datang'}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {isRegistering
+                    ? 'Lengkapi data identitas untuk mendaftar praktikum.'
+                    : 'Masuk menggunakan email dan kata sandi.'}
+                </ThemedText>
+              </View>
 
-              {roleUsers.length === 0 ? (
-                <ThemedView type="background" style={styles.empty}>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Belum ada akun dummy untuk peran ini.
+              {error || formError ? (
+                <View
+                  accessibilityRole="alert"
+                  style={[
+                    styles.errorBox,
+                    { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
+                  ]}>
+                  <ThemedText type="small" style={{ color: theme.danger, fontWeight: '600' }}>
+                    {formError ?? error}
                   </ThemedText>
-                </ThemedView>
-              ) : (
-                <View style={styles.userList}>
-                  {roleUsers.map((user) => {
-                    const active = user.id === selectedUser?.id;
-
-                    return (
-                      <Pressable
-                        key={user.id}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected: active }}
-                        onPress={() => setSelectedUserId(user.id)}
-                        style={({ pressed }) => [
-                          styles.userRow,
-                          {
-                            backgroundColor: theme.background,
-                            borderColor: active ? theme.primary : theme.border,
-                          },
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.avatar,
-                            { backgroundColor: theme.successSoft },
-                          ]}
-                        >
-                          <ThemedText type="smallBold">
-                            {initials(user.name)}
-                          </ThemedText>
-                        </View>
-
-                        <View style={styles.userMeta}>
-                          <ThemedText type="default">{user.name}</ThemedText>
-                          <ThemedText type="small" themeColor="textSecondary">
-                            {user.identityNumber}
-                          </ThemedText>
-                        </View>
-
-                        <View
-                          style={[
-                            styles.radio,
-                            {
-                              borderColor: active
-                                ? theme.primary
-                                : theme.border,
-                            },
-                          ]}
-                        >
-                          {active ? (
-                            <View
-                              style={[
-                                styles.radioDot,
-                                { backgroundColor: theme.primary },
-                              ]}
-                            />
-                          ) : null}
-                        </View>
-                      </Pressable>
-                    );
-                  })}
                 </View>
-              )}
-            </View>
-          </View>
-        </ScrollView>
+              ) : null}
 
-        <View style={[styles.footer, { backgroundColor: theme.background }]}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={!selectedUser}
-            onPress={handleSubmit}
-            style={({ pressed }) => [
-              styles.submit,
-              {
-                backgroundColor: selectedUser
-                  ? theme.primary
-                  : theme.backgroundSelected,
-              },
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText
-              type="smallBold"
-              style={{
-                color: selectedUser ? theme.primaryText : theme.textSecondary,
-              }}
-            >
-              Masuk
-            </ThemedText>
-          </Pressable>
-        </View>
+              {isRegistering ? (
+                <>
+                  <AuthInput
+                    label="Nama lengkap"
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="Nama sesuai identitas"
+                    autoCapitalize="words"
+                    theme={theme}
+                  />
+                  <AuthInput
+                    label="Nomor identitas"
+                    value={identityNumber}
+                    onChangeText={setIdentityNumber}
+                    placeholder="NIM"
+                    autoCapitalize="characters"
+                    theme={theme}
+                  />
+                  <AuthInput
+                    label="Program studi"
+                    value={program}
+                    onChangeText={setProgram}
+                    placeholder="Contoh: Informatika"
+                    autoCapitalize="words"
+                    theme={theme}
+                  />
+                </>
+              ) : null}
+
+              <AuthInput
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="nama@email.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
+                theme={theme}
+              />
+              <AuthInput
+                label="Kata sandi"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Minimal 6 karakter"
+                secureTextEntry
+                autoCapitalize="none"
+                autoComplete={isRegistering ? 'new-password' : 'password'}
+                theme={theme}
+              />
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={submitting || loading}
+                onPress={handleSubmit}
+                style={({ pressed }) => [
+                  styles.submit,
+                  { backgroundColor: theme.primary },
+                  (pressed || submitting || loading) && styles.dimmed,
+                ]}>
+                {submitting || loading ? (
+                  <ActivityIndicator color={theme.primaryText} />
+                ) : (
+                  <ThemedText
+                    type="smallBold"
+                    style={{ color: theme.primaryText }}>
+                    {isRegistering ? 'Daftar sebagai praktikan' : 'Masuk'}
+                  </ThemedText>
+                )}
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                disabled={submitting}
+                onPress={() => {
+                  setIsRegistering((previous) => !previous);
+                  setFormError(null);
+                }}
+                style={styles.modeToggle}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {isRegistering ? 'Sudah punya akun? ' : 'Belum punya akun? '}
+                </ThemedText>
+                <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                  {isRegistering ? 'Masuk' : 'Daftar'}
+                </ThemedText>
+              </Pressable>
+
+              {isRegistering ? (
+                <ThemedText
+                  type="small"
+                  themeColor="textSecondary"
+                  style={styles.assistantNote}>
+                  Akun asisten disiapkan oleh pengelola agar peran tidak dapat
+                  diklaim sendiri.
+                </ThemedText>
+              ) : null}
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ThemedView>
+  );
+}
+
+type Theme = ReturnType<typeof useTheme>;
+
+function AuthInput({
+  label,
+  theme,
+  ...props
+}: {
+  label: string;
+  theme: Theme;
+} & React.ComponentProps<typeof TextInput>) {
+  return (
+    <View style={styles.inputGroup}>
+      <ThemedText type="smallBold" style={styles.inputLabel}>{label}</ThemedText>
+      <View
+        style={[
+          styles.inputContainer,
+          {
+            backgroundColor: 'rgba(255, 248, 238, 0.45)',
+            borderColor: 'rgba(136, 144, 99, 0.35)',
+          },
+        ]}>
+        <TextInput
+          {...props}
+          placeholderTextColor="#7F735B"
+          style={[styles.input, { color: theme.text }]}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -228,129 +295,145 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  scrollView: {
+  flex: {
     flex: 1,
   },
-  content: {
+  scrollContent: {
     flexGrow: 1,
-  },
-  hero: {
-    gap: Spacing.three,
     paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.six,
-    paddingBottom: Spacing.five,
-    borderBottomWidth: 8,
-    borderBottomColor: "#889063",
-  },
-  heroEyebrow: {
-    fontFamily: Fonts.bold,
-  },
-  heroTitle: {
-    fontFamily: Fonts.bold,
-    fontSize: 56,
-    lineHeight: 64,
-  },
-  heroSubtitle: {
-    fontFamily: Fonts.medium,
-    fontSize: 18,
-    lineHeight: 27,
-  },
-  form: {
-    width: "100%",
-    maxWidth: 700,
-    alignSelf: "center",
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.four,
-    paddingBottom: Spacing.five,
+    paddingVertical: Spacing.four,
+    paddingBottom: Spacing.six,
     gap: Spacing.four,
   },
-  section: {
+  heroGlassCard: {
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    alignSelf: 'center',
     gap: Spacing.two,
+    paddingHorizontal: Spacing.five,
+    paddingTop: Spacing.five,
+    paddingBottom: Spacing.five,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    elevation: 3,
   },
-  roleRow: {
-    flexDirection: "row",
-    gap: Spacing.two,
-  },
-  roleCard: {
-    flex: 1,
-    minHeight: 60,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
+  heroBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.half,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
     borderWidth: 1,
-    borderRadius: 12,
-    shadowColor: "#4C3D19",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
   },
-  userList: {
-    gap: Spacing.two,
+  heroTitle: {
+    maxWidth: 520,
+    fontSize: 34,
+    lineHeight: 42,
   },
-  userRow: {
-    flexDirection: "row",
-    alignItems: "center",
+  heroSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    opacity: 0.9,
+  },
+  glassFormCard: {
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    alignSelf: 'center',
+    padding: Spacing.five,
     gap: Spacing.three,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    position: 'relative',
+    overflow: 'hidden',
+    shadowColor: '#4C3D19',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 4,
+    ...(Platform.OS === 'web'
+      ? ({ backdropFilter: 'blur(20px)' } as unknown as object)
+      : {}),
+  },
+  cardTopHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 20,
+    right: 20,
+    height: 1.5,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+  },
+  heading: {
+    gap: Spacing.one,
+    paddingBottom: Spacing.one,
+  },
+  headingTitle: {
+    fontSize: 26,
+    lineHeight: 34,
+  },
+  errorBox: {
     padding: Spacing.three,
+    borderRadius: Spacing.two,
     borderWidth: 1,
-    borderRadius: 12,
-    shadowColor: "#4C3D19",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
+  },
+  inputGroup: {
+    gap: Spacing.one,
+  },
+  inputLabel: {
+    fontSize: 13,
+  },
+  inputContainer: {
+    minHeight: 52,
+    paddingHorizontal: Spacing.three,
+    borderWidth: 1.5,
+    borderRadius: 16,
+    justifyContent: 'center',
+    shadowColor: '#4C3D19',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
     shadowRadius: 6,
-    elevation: 2,
+    elevation: 1,
   },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  userMeta: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  radio: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  radioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  empty: {
-    padding: Spacing.three,
-    borderRadius: Spacing.three,
-  },
-  footer: {
-    width: "100%",
-    maxWidth: 700,
-    alignSelf: "center",
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.three,
-    shadowColor: "#4C3D19",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 8,
+  input: {
+    fontSize: 15,
+    paddingVertical: 10,
+    backgroundColor: 'transparent',
+    ...(Platform.OS === 'web'
+      ? ({ outlineStyle: 'none', background: 'transparent' } as unknown as object)
+      : {}),
   },
   submit: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 64,
-    paddingVertical: Spacing.three,
-    borderRadius: 12,
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    marginTop: Spacing.two,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  pressed: {
-    opacity: 0.75,
+  modeToggle: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: 44,
+    paddingVertical: Spacing.one,
+  },
+  assistantNote: {
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: Spacing.one,
+  },
+  dimmed: {
+    opacity: 0.65,
   },
 });
