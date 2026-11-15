@@ -24,6 +24,15 @@ export const Colors = {
     warningSoft: "#CFBB99",
     danger: "#B42318",
     dangerSoft: "#FDECEA",
+    // Tinted Green Glass - Kaca hijau transparan tembus warna krem background
+    glassGreen: "rgba(53, 64, 36, 0.45)",
+    glassGreenLight: "rgba(136, 144, 99, 0.25)",
+    glassGreenBorder: "rgba(53, 64, 36, 0.4)",
+    glassGreenSheen: "rgba(255, 255, 255, 0.45)",
+    glassCard: "rgba(136, 144, 99, 0.18)",
+    glassBorder: "rgba(136, 144, 99, 0.38)",
+    glassBorderHighlight: "rgba(255, 255, 255, 0.65)",
+    glassInput: "rgba(255, 255, 255, 0.4)",
   },
   dark: {
     text: "#4C3D19",
@@ -41,6 +50,15 @@ export const Colors = {
     warningSoft: "#CFBB99",
     danger: "#B42318",
     dangerSoft: "#FDECEA",
+    // Tinted Green Glass - Kaca hijau transparan tembus warna krem background
+    glassGreen: "rgba(53, 64, 36, 0.45)",
+    glassGreenLight: "rgba(136, 144, 99, 0.25)",
+    glassGreenBorder: "rgba(53, 64, 36, 0.4)",
+    glassGreenSheen: "rgba(255, 255, 255, 0.45)",
+    glassCard: "rgba(136, 144, 99, 0.18)",
+    glassBorder: "rgba(136, 144, 99, 0.38)",
+    glassBorderHighlight: "rgba(255, 255, 255, 0.65)",
+    glassInput: "rgba(255, 255, 255, 0.4)",
   },
 } as const;
 
