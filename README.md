@@ -2,6 +2,33 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+## Firebase setup
+
+The app uses the Firebase JavaScript SDK for email/password authentication and
+Cloud Firestore. In Firebase Console, enable **Email/Password** under
+Authentication, create a Firestore database, and register a web app to get its
+configuration values.
+
+Copy `.env.example` to `.env.local` and fill in the values from the Firebase web
+app configuration:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+Publish the rules in `firestore.rules` from the Firestore Rules tab in Firebase
+Console. Self-registration creates a `praktikan` profile. To provision an
+assistant account, create its Authentication account and add a `users/{uid}`
+document with `name`, `email`, `role: "asisten"`, `identityNumber`, and
+`program`. Assistant role assignment is intentionally not available during
+self-registration.
+
+Assistants can manage their own classes, class participants, and schedules from
+**Kelola data praktikum**. Practikan schedules appear after an assistant adds
+their account to a class. Creating a class also creates its first schedule in
+one Firestore batch; publish the latest `firestore.rules` so that batch is
+authorized.
+
 ## Get started
 
 1. Install dependencies
