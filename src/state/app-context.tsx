@@ -71,15 +71,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
-  const selectUser = useCallback((userId: string) => {
-    setCurrentUser(
-      dummyUsers.find((user) => user.id === userId) ?? null,
-    );
-  }, []);
+    function receiveSchedules(nextSchedules: Schedule[]) {
+      if (!active) {
+        return;
+      }
 
-  const signOut = useCallback(() => {
-    setCurrentUser(null);
-  }, []);
+      const sameOwner = dataOwnerUserId.current === user.id;
+      dataOwnerUserId.current = user.id;
+      setDataUserId(user.id);
+      if (
+        !sameOwner &&
+        (user.role !== 'asisten' ||
+          profileOwnerUserId.current !== user.id)
+      ) {
+        setUsers([user]);
+      }
+
+      setSchedules(nextSchedules);
+      setSessions((previousSessions) => {
+        const byScheduleId = new Map(
+          (sameOwner ? previousSessions : []).map((session) => [
+            session.scheduleId,
+            session,
+          ]),
+        );
+
+        return nextSchedules.map(
+          (schedule) =>
+            byScheduleId.get(schedule.id) ?? {
+              id: `session-${schedule.id}`,
+              scheduleId: schedule.id,
+              status: 'scheduled',
+              openedAt: null,
+              closedAt: null,
+            },
+        );
+      });
+
+      const sessionIds = new Set(
+        nextSchedules.map((schedule) => `session-${schedule.id}`),
+      );
+      const nextAttendance = (sameOwner ? attendanceRef.current : []).filter(
+        (record) => sessionIds.has(record.sessionId),
+      );
+      attendanceRef.current = nextAttendance;
+      setAttendance(nextAttendance);
+    }
+
+    try {
+      subscriptions.push(
+        user.role === 'asisten'
+          ? listenSchedules(receiveSchedules, handleError)
+          : listenSchedulesForUser(
+              user.id,
+              receiveSchedules,
+              handleError,
+            ),
+      );
+
+      if (user.role === 'asisten') {
+        let praktikanProfiles: User[] = [];
+        let assistantProfiles: User[] = [];
+        const updateProfiles = () => {
+          profileOwnerUserId.current = user.id;
+          const uniqueProfiles = new Map(
+            [...praktikanProfiles, ...assistantProfiles, user].map(
+              (user) => [user.id, user],
+            ),
+          );
+          setUsers([...uniqueProfiles.values()]);
+        };
+
+        subscriptions.push(
+          listenPraktikanProfiles((profiles) => {
+            if (active) {
+              praktikanProfiles = profiles;
+              updateProfiles();
+            }
+          }, handleError),
+          listenAssistantProfiles((profiles) => {
+            if (active) {
+              assistantProfiles = profiles;
+              updateProfiles();
+            }
+          }, handleError),
+        );
+      }
+    } catch (subscriptionError) {
+      handleError(
+        subscriptionError instanceof Error
+          ? subscriptionError
+          : new Error('Tidak dapat memulai pemuatan data Firebase.'),
+      );
+    }
+
+    return () => {
+      active = false;
+      subscriptions.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [currentUser]);
+
+  const currentUserDataIsLoaded =
+    currentUser !== null && dataUserId === currentUser.id;
+  const visibleUsers = useMemo(
+    () =>
+      currentUserDataIsLoaded
+        ? users
+        : currentUser
+          ? [currentUser]
+          : [],
+    [currentUser, currentUserDataIsLoaded, users],
+  );
+  const visibleSchedules = useMemo(
+    () => (currentUserDataIsLoaded ? schedules : []),
+    [currentUserDataIsLoaded, schedules],
+  );
+  const visibleSessions = useMemo(
+    () => (currentUserDataIsLoaded ? sessions : []),
+    [currentUserDataIsLoaded, sessions],
+  );
+  const visibleAttendance = useMemo(
+    () => (currentUserDataIsLoaded ? attendance : []),
+    [attendance, currentUserDataIsLoaded],
+  );
 
   const openSession = useCallback(async (sessionId: string) => {
     await writeOpenSession(sessionId);
@@ -112,21 +226,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppContextValue>(() => {
     const getUser = (userId: string) =>
-      dummyUsers.find((user) => user.id === userId);
+      visibleUsers.find((user) => user.id === userId);
 
     const getSchedule = (scheduleId: string) =>
-      dummySchedules.find(
-        (schedule) => schedule.id === scheduleId,
-      );
+      visibleSchedules.find((schedule) => schedule.id === scheduleId);
 
     return {
-      users: dummyUsers,
-      schedules: dummySchedules,
-      sessions,
-      attendance,
+      users: visibleUsers,
+      schedules: visibleSchedules,
+      sessions: visibleSessions,
+      attendance: visibleAttendance,
       currentUser,
-      selectUser,
-      signOut,
       openSession,
       closeSession,
       checkIn,
@@ -136,7 +246,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       getSchedule,
 
       getScheduleForSession: (sessionId) => {
-        const session = sessions.find(
+        const session = visibleSessions.find(
           (item) => item.id === sessionId,
         );
 
@@ -146,40 +256,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       getSessionsForSchedule: (scheduleId) =>
-        sessions.filter(
+        visibleSessions.filter(
           (session) => session.scheduleId === scheduleId,
         ),
 
       hasCheckedIn: (sessionId, userId) =>
-        attendance.some(
+        visibleAttendance.some(
           (record) =>
             record.sessionId === sessionId &&
             record.userId === userId,
         ),
 
       getAttendanceForSession: (sessionId) =>
-        attendance
+        visibleAttendance
           .filter((record) => record.sessionId === sessionId)
           .sort((a, b) =>
             a.checkedInAt.localeCompare(b.checkedInAt),
           ),
 
       getAttendanceForUser: (userId) =>
-        attendance
+        visibleAttendance
           .filter((record) => record.userId === userId)
           .sort((a, b) =>
             b.checkedInAt.localeCompare(a.checkedInAt),
           ),
     };
   }, [
-    attendance,
     checkIn,
     closeSession,
     currentUser,
     openSession,
-    selectUser,
-    sessions,
-    signOut,
+    visibleAttendance,
+    visibleSchedules,
+    visibleSessions,
+    visibleUsers,
   ]);
 
   return (

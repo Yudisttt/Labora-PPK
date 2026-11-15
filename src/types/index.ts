@@ -3,6 +3,7 @@ export type Role = 'praktikan' | 'asisten';
 export type User = {
   id: string;
   name: string;
+  email?: string;
   role: Role;
   identityNumber: string;
   program: string;
@@ -10,6 +11,7 @@ export type User = {
 
 export type Schedule = {
   id: string;
+  classId?: string;
   praktikum: string;
   kelas: string;
   ruang: string;

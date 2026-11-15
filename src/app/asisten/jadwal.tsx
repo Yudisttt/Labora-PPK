@@ -358,26 +358,56 @@ export default function AsistenJadwalScreen() {
             </View>
           ) : null}
 
-          {/* Header Portal Asisten */}
-          <View style={styles.header}>
+          {/* Tinted Green Glass Header Portal Asisten */}
+          <View
+            style={[
+              styles.headerGlassCard,
+              {
+                backgroundColor: 'rgba(53, 64, 36, 0.78)',
+                borderColor: 'rgba(255, 255, 255, 0.35)',
+              },
+            ]}>
             <View style={styles.headerBadge}>
               <ThemedText
                 type="smallBold"
-                style={{ color: theme.primary, letterSpacing: 0.5 }}>
+                style={{ color: '#FFFFFF', letterSpacing: 1.2, fontSize: 11, fontWeight: '700' }}>
                 PORTAL ASISTEN LABORATORIUM
               </ThemedText>
             </View>
-            <ThemedText type="subtitle" style={styles.headerTitle}>
-              Jadwal & Presensi Praktikum
+            <ThemedText type="subtitle" style={[styles.headerTitle, { color: '#FFFFFF', fontSize: 28, lineHeight: 36, fontWeight: '700' }]}>
+              Halo, {currentUser?.name ?? "Asisten Lab"}
             </ThemedText>
-            <ThemedText themeColor="textSecondary" style={styles.headerSubtitle}>
-              Halo, <ThemedText type="smallBold">{currentUser?.name}</ThemedText>
-              {' '}({currentUser?.identityNumber}). Kelola sesi praktikum dan
-              pantau kehadiran praktikan secara langsung.
-            </ThemedText>
+            <View style={styles.headerUserPill}>
+              <ThemedText style={{ color: '#FFFFFF', fontSize: 13, opacity: 0.95 }}>
+                Kelola sesi praktikum dan pantau kehadiran mahasiswa
+              </ThemedText>
+            </View>
           </View>
 
-          {/* Stat Cards Row (SRS-04) */}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/asisten/kelola-data')}
+            style={({ pressed }) => [
+              styles.manageDataButton,
+              {
+                backgroundColor: theme.glassCard,
+                borderColor: theme.glassBorder,
+              },
+              pressed && styles.pressed,
+            ]}>
+            <ThemedText
+              type="smallBold"
+              style={[styles.manageDataButtonText, { color: theme.primary }]}>
+              Kelola kelas, peserta, dan jadwal praktikum
+            </ThemedText>
+            <ThemedText
+              type="smallBold"
+              style={[styles.manageDataButtonArrow, { color: theme.primary }]}>
+              →
+            </ThemedText>
+          </Pressable>
+
+          {/* Stat Cards Row (SRS-04) - Tinted Moss Glass */}
           <View style={styles.statsRow}>
             <Pressable
               accessibilityRole="button"
@@ -387,10 +417,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'all'
-                      ? theme.primary
-                      : theme.backgroundElement,
+                      ? 'rgba(53, 64, 36, 0.85)'
+                      : 'rgba(136, 144, 99, 0.25)',
                   borderColor:
-                    statusFilter === 'all' ? theme.primary : theme.border,
+                    statusFilter === 'all'
+                      ? theme.primary
+                      : 'rgba(53, 64, 36, 0.35)',
                 },
                 pressed && styles.pressed,
               ]}>
@@ -402,18 +434,19 @@ export default function AsistenJadwalScreen() {
                     color:
                       statusFilter === 'all'
                         ? theme.primaryText
-                        : theme.text,
+                        : theme.primary,
                   },
                 ]}>
                 {schedules.length}
               </ThemedText>
               <ThemedText
-                type="small"
+                type="smallBold"
                 style={{
                   color:
                     statusFilter === 'all'
                       ? theme.primaryText
                       : theme.textSecondary,
+                  fontSize: 11,
                 }}>
                 Semua Jadwal
               </ThemedText>
@@ -427,10 +460,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'open'
-                      ? theme.primary
-                      : theme.backgroundElement,
+                      ? 'rgba(53, 64, 36, 0.85)'
+                      : 'rgba(136, 144, 99, 0.25)',
                   borderColor:
-                    statusFilter === 'open' ? theme.primary : theme.border,
+                    statusFilter === 'open'
+                      ? theme.primary
+                      : 'rgba(53, 64, 36, 0.35)',
                 },
                 pressed && styles.pressed,
               ]}>
@@ -443,7 +478,7 @@ export default function AsistenJadwalScreen() {
                       color:
                         statusFilter === 'open'
                           ? theme.primaryText
-                          : theme.text,
+                          : theme.primary,
                     },
                   ]}>
                   {openSessionsCount}
@@ -453,12 +488,13 @@ export default function AsistenJadwalScreen() {
                 )}
               </View>
               <ThemedText
-                type="small"
+                type="smallBold"
                 style={{
                   color:
                     statusFilter === 'open'
                       ? theme.primaryText
                       : theme.textSecondary,
+                  fontSize: 11,
                 }}>
                 Sesi Dibuka
               </ThemedText>
@@ -472,10 +508,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'scheduled'
-                      ? theme.primary
-                      : theme.backgroundElement,
+                      ? 'rgba(53, 64, 36, 0.85)'
+                      : 'rgba(136, 144, 99, 0.25)',
                   borderColor:
-                    statusFilter === 'scheduled' ? theme.primary : theme.border,
+                    statusFilter === 'scheduled'
+                      ? theme.primary
+                      : 'rgba(53, 64, 36, 0.35)',
                 },
                 pressed && styles.pressed,
               ]}>
@@ -487,18 +525,19 @@ export default function AsistenJadwalScreen() {
                     color:
                       statusFilter === 'scheduled'
                         ? theme.primaryText
-                        : theme.text,
+                        : theme.primary,
                   },
                 ]}>
                 {scheduledSessionsCount}
               </ThemedText>
               <ThemedText
-                type="small"
+                type="smallBold"
                 style={{
                   color:
                     statusFilter === 'scheduled'
                       ? theme.primaryText
                       : theme.textSecondary,
+                  fontSize: 11,
                 }}>
                 Terjadwal
               </ThemedText>
@@ -512,10 +551,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'closed'
-                      ? theme.primary
-                      : theme.backgroundElement,
+                      ? 'rgba(53, 64, 36, 0.85)'
+                      : 'rgba(136, 144, 99, 0.25)',
                   borderColor:
-                    statusFilter === 'closed' ? theme.primary : theme.border,
+                    statusFilter === 'closed'
+                      ? theme.primary
+                      : 'rgba(53, 64, 36, 0.35)',
                 },
                 pressed && styles.pressed,
               ]}>
@@ -527,18 +568,19 @@ export default function AsistenJadwalScreen() {
                     color:
                       statusFilter === 'closed'
                         ? theme.primaryText
-                        : theme.text,
+                        : theme.primary,
                   },
                 ]}>
                 {closedSessionsCount}
               </ThemedText>
               <ThemedText
-                type="small"
+                type="smallBold"
                 style={{
                   color:
                     statusFilter === 'closed'
                       ? theme.primaryText
                       : theme.textSecondary,
+                  fontSize: 11,
                 }}>
                 Ditutup
               </ThemedText>
@@ -546,7 +588,14 @@ export default function AsistenJadwalScreen() {
           </View>
 
           {/* Main Navigation Tabs */}
-          <View style={styles.tabNavContainer}>
+          <View
+            style={[
+              styles.tabNavContainer,
+              {
+                backgroundColor: 'rgba(136, 144, 99, 0.2)',
+                borderColor: 'rgba(53, 64, 36, 0.3)',
+              },
+            ]}>
             <Pressable
               accessibilityRole="tab"
               accessibilityState={{ selected: activeTab === 'jadwal' }}
@@ -555,7 +604,7 @@ export default function AsistenJadwalScreen() {
                 styles.tabNavButton,
                 {
                   backgroundColor:
-                    activeTab === 'jadwal' ? theme.primary : theme.moss,
+                    activeTab === 'jadwal' ? theme.primary : 'transparent',
                 },
                 pressed && styles.pressed,
               ]}>
@@ -565,7 +614,7 @@ export default function AsistenJadwalScreen() {
                   color:
                     activeTab === 'jadwal'
                       ? theme.primaryText
-                      : theme.primaryText,
+                      : theme.text,
                 }}>
                 Jadwal & Sesi Praktikum
               </ThemedText>
@@ -579,7 +628,7 @@ export default function AsistenJadwalScreen() {
                 styles.tabNavButton,
                 {
                   backgroundColor:
-                    activeTab === 'rekap' ? theme.primary : theme.moss,
+                    activeTab === 'rekap' ? theme.primary : 'transparent',
                 },
                 pressed && styles.pressed,
               ]}>
@@ -589,7 +638,7 @@ export default function AsistenJadwalScreen() {
                   color:
                     activeTab === 'rekap'
                       ? theme.primaryText
-                      : theme.primaryText,
+                      : theme.text,
                 }}>
                 Rekap Presensi Mahasiswa
               </ThemedText>
@@ -635,6 +684,7 @@ export default function AsistenJadwalScreen() {
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
+                    style={styles.filterChipsScroll}
                     contentContainerStyle={styles.filterChipsContainer}>
                     <Pressable
                       onPress={() => setStatusFilter('all')}
@@ -734,6 +784,8 @@ export default function AsistenJadwalScreen() {
                   </ScrollView>
 
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: onlyMySchedules }}
                     onPress={() => setOnlyMySchedules((prev) => !prev)}
                     style={[
                       styles.mySchedulesToggle,
@@ -1525,12 +1577,19 @@ export default function AsistenJadwalScreen() {
                     paddingBottom: insets.bottom + Spacing.four,
                   },
                 ]}>
-                <View
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Tutup detail sesi"
+                  hitSlop={8}
+                  onPress={() => setSelectedSchedule(null)}
+                  style={styles.modalHandlePressable}>
+                  <View
                   style={[
                     styles.modalHandle,
                     { backgroundColor: theme.border },
                   ]}
-                />
+                  />
+                </Pressable>
 
                 {selectedSchedule && activeModalSession && (
                   <ScrollView
@@ -2452,6 +2511,43 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.four,
     gap: Spacing.four,
   },
+  headerGlassCard: {
+    padding: Spacing.four,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    gap: Spacing.two,
+    shadowColor: '#4C3D19',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  headerUserPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  manageDataButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 48,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: Spacing.two,
+  },
+  manageDataButtonText: {
+    flex: 1,
+  },
+  manageDataButtonArrow: {
+    fontSize: 18,
+  },
   header: {
     gap: Spacing.half,
   },
@@ -2464,10 +2560,12 @@ const styles = StyleSheet.create({
   },
   headerBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.two,
+    paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.half,
-    borderRadius: Spacing.one,
-    backgroundColor: '#DFD3C0',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.45)',
   },
   headerTitle: {
     fontSize: 22,
@@ -2501,14 +2599,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.two,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 22,
+    borderWidth: 1.5,
     gap: Spacing.half,
     shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
   },
   statValueRow: {
     flexDirection: 'row',
@@ -2550,8 +2648,9 @@ const styles = StyleSheet.create({
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.75)',
+    borderRadius: 16,
     paddingHorizontal: Spacing.three,
     paddingVertical: Platform.OS === 'ios' ? Spacing.two : Spacing.one,
   },
@@ -2571,6 +2670,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: Spacing.two,
   },
+  filterChipsScroll: {
+    flex: 1,
+    minWidth: 0,
+  },
   filterChipsContainer: {
     flexDirection: 'row',
     gap: Spacing.one,
@@ -2579,19 +2682,22 @@ const styles = StyleSheet.create({
   chip: {
     paddingVertical: 6,
     paddingHorizontal: Spacing.three,
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 999,
+    borderWidth: 1.5,
   },
   mySchedulesToggle: {
-    paddingVertical: 6,
+    flexShrink: 0,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: Spacing.three,
-    borderRadius: 20,
-    borderWidth: 1,
+    borderRadius: 999,
+    borderWidth: 1.5,
   },
   emptyContainer: {
     padding: Spacing.five,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 22,
+    borderWidth: 1.5,
     alignItems: 'center',
     gap: Spacing.two,
   },
@@ -2606,21 +2712,21 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
     paddingHorizontal: Spacing.four,
     paddingVertical: Spacing.two,
-    borderRadius: 8,
+    borderRadius: 14,
   },
   scheduleList: {
     gap: Spacing.three,
   },
   scheduleCard: {
     padding: Spacing.four,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 22,
+    borderWidth: 1.5,
     gap: Spacing.three,
     shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
   },
   scheduleCardActive: {
     borderWidth: 2,
@@ -2835,7 +2941,13 @@ const styles = StyleSheet.create({
     width: 48,
     height: 5,
     borderRadius: 3,
+  },
+  modalHandlePressable: {
+    width: 64,
+    height: 44,
     alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: Spacing.three,
   },
   modalScrollContent: {
