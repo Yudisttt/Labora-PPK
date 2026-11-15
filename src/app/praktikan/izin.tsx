@@ -82,10 +82,22 @@ export default function PraktikanIzinScreen() {
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [aiPrediction, setAiPrediction] = useState<PermissionAiPrediction | null>(null);
 
-  const availableSessions = useMemo(
-    () => sessions.filter((session) => session.status !== 'closed'),
-    [sessions],
-  );
+  const availableSessions = useMemo(() => {
+    const currentSessionBySchedule = new Map<string, Session>();
+
+    sessions.forEach((session) => {
+      if (session.status === 'closed' || !getSchedule(session.scheduleId)) {
+        return;
+      }
+
+      const current = currentSessionBySchedule.get(session.scheduleId);
+      if (!current || session.status === 'open') {
+        currentSessionBySchedule.set(session.scheduleId, session);
+      }
+    });
+
+    return [...currentSessionBySchedule.values()];
+  }, [getSchedule, sessions]);
 
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'praktikan') {

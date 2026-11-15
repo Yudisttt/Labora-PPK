@@ -98,8 +98,8 @@ export default function AuthScreen() {
               style={[
                 styles.heroGlassCard,
                 {
-                  backgroundColor: 'rgba(53, 64, 36, 0.75)',
-                  borderColor: 'rgba(255, 255, 255, 0.35)',
+                  backgroundColor: theme.primary,
+                  borderColor: theme.primary,
                 },
               ]}>
               <View style={styles.heroBadge}>
@@ -125,8 +125,8 @@ export default function AuthScreen() {
               style={[
                 styles.glassFormCard,
                 {
-                  backgroundColor: 'rgba(136, 144, 99, 0.16)',
-                  borderColor: 'rgba(136, 144, 99, 0.32)',
+                  backgroundColor: theme.glassCard,
+                  borderColor: theme.glassBorder,
                 },
               ]}>
               <View style={styles.cardTopHighlight} />
@@ -274,8 +274,8 @@ function AuthInput({
         style={[
           styles.inputContainer,
           {
-            backgroundColor: 'rgba(255, 248, 238, 0.45)',
-            borderColor: 'rgba(136, 144, 99, 0.35)',
+            backgroundColor: theme.glassInput,
+            borderColor: theme.glassBorder,
           },
         ]}>
         <TextInput
@@ -315,20 +315,15 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
     borderRadius: 24,
     borderWidth: 1.5,
-    shadowColor: '#354024',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.16,
-    shadowRadius: 16,
-    elevation: 3,
   },
   heroBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.half,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    backgroundColor: '#889063',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    borderColor: '#AAB18B',
   },
   heroTitle: {
     maxWidth: 520,
@@ -350,14 +345,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     position: 'relative',
     overflow: 'hidden',
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 4,
-    ...(Platform.OS === 'web'
-      ? ({ backdropFilter: 'blur(20px)' } as unknown as object)
-      : {}),
   },
   cardTopHighlight: {
     position: 'absolute',
@@ -365,7 +352,7 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     height: 1.5,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: '#F7F1E7',
   },
   heading: {
     gap: Spacing.one,
@@ -392,11 +379,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 16,
     justifyContent: 'center',
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 1,
   },
   input: {
     fontSize: 15,
@@ -413,12 +395,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginTop: Spacing.two,
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
-    shadowColor: '#354024',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-    elevation: 4,
+    borderColor: '#889063',
   },
   modeToggle: {
     flexDirection: 'row',

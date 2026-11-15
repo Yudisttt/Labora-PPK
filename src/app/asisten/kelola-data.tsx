@@ -253,10 +253,16 @@ export default function ManagePracticumDataScreen() {
       setNotice(successMessage);
       return true;
     } catch (actionError) {
+      const code =
+        actionError instanceof Error && 'code' in actionError
+          ? String(actionError.code)
+          : '';
       setError(
-        actionError instanceof Error
-          ? actionError.message
-          : 'Tidak dapat menyimpan perubahan ke Firebase.',
+        code === 'permission-denied' || code === 'firestore/permission-denied'
+          ? 'Firestore menolak penyimpanan kelas dan jadwal (permission-denied). Pastikan rules terbaru terbit di project labora-89bf3 dan profil users/{UID} memiliki role asisten.'
+          : actionError instanceof Error
+            ? `${actionError.message}${code ? ` (${code})` : ''}`
+            : 'Tidak dapat menyimpan perubahan ke Firebase.',
       );
       return false;
     } finally {
@@ -995,8 +1001,8 @@ export default function ManagePracticumDataScreen() {
             style={[
               styles.headerGlassCard,
               {
-                backgroundColor: 'rgba(53, 64, 36, 0.78)',
-                borderColor: 'rgba(255, 255, 255, 0.35)',
+                backgroundColor: theme.primary,
+                borderColor: theme.primary,
               },
             ]}>
             <View style={styles.headerBadge}>
@@ -1064,7 +1070,7 @@ export default function ManagePracticumDataScreen() {
           ) : null}
           {notice ? (
             <View
-              accessibilityRole="status"
+              accessibilityLiveRegion="polite"
               style={[styles.message, { backgroundColor: theme.successSoft }]}>
               <ThemedText type="small" style={{ color: theme.success }}>
                 {notice}
@@ -1478,20 +1484,15 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     gap: Spacing.two,
-    shadowColor: '#354024',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 2,
   },
   headerBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.half,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    backgroundColor: '#889063',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    borderColor: '#AAB18B',
   },
   backButtonPill: {
     alignSelf: 'flex-start',
@@ -1510,11 +1511,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1.5,
     gap: Spacing.half,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
   },
   tab: {
     flex: 1,
@@ -1532,22 +1528,12 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     gap: Spacing.three,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 3,
   },
   card: {
     padding: Spacing.four,
     borderRadius: 22,
     borderWidth: 1.5,
     gap: Spacing.two,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
   },
   inputGroup: {
     flex: 1,

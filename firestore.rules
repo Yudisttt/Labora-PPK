@@ -1,0 +1,250 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function participantPath(classId, uid) {
+      return /databases/$(database)/documents/participants/$(classId + '_' + uid);
+    }
+
+    function isAssistant() {
+      return signedIn()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.role == 'asisten';
+    }
+
+    function isPraktikan() {
+      return signedIn()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.role == 'praktikan';
+    }
+
+    function isKnownUser() {
+      return isAssistant() || isPraktikan();
+    }
+
+    function ownsClass(classId) {
+      let path = /databases/$(database)/documents/classes/$(classId);
+      return isAssistant()
+        && exists(path)
+        && get(path).data.assistantId == request.auth.uid;
+    }
+
+    function ownsClassAfter(classId) {
+      let path = /databases/$(database)/documents/classes/$(classId);
+      return isAssistant()
+        && existsAfter(path)
+        && getAfter(path).data.assistantId == request.auth.uid;
+    }
+
+    function ownsSchedule(scheduleId) {
+      let path = /databases/$(database)/documents/schedules/$(scheduleId);
+      return isAssistant()
+        && exists(path)
+        && get(path).data.assistantId == request.auth.uid;
+    }
+
+    function ownsScheduleForSession(session) {
+      return session.scheduleId is string && ownsSchedule(session.scheduleId);
+    }
+
+    function assistantOwnsSession(sessionId) {
+      let sessionPath = /databases/$(database)/documents/sessions/$(sessionId);
+      return isAssistant()
+        && exists(sessionPath)
+        && ownsScheduleForSession(get(sessionPath).data);
+    }
+
+    function matchingApprovedPermission(sessionId, userId, permissionRequestId) {
+      let permissionPath = /databases/$(database)/documents/permissionRequests/$(permissionRequestId);
+      return existsAfter(permissionPath)
+        && getAfter(permissionPath).data.status == 'approved'
+        && getAfter(permissionPath).data.sessionId == sessionId
+        && getAfter(permissionPath).data.userId == userId
+        && getAfter(permissionPath).data.decisionBy == request.auth.uid;
+    }
+
+    function isEnrolled(classId, uid) {
+      return exists(participantPath(classId, uid));
+    }
+
+    function validClass(data) {
+      return data.keys().hasAll(['name', 'course', 'assistantId'])
+        && data.name is string
+        && data.course is string
+        && data.assistantId == request.auth.uid;
+    }
+
+    function validSchedule(data) {
+      return data.keys().hasAll([
+          'classId', 'praktikum', 'kelas', 'ruang', 'date',
+          'startTime', 'endTime', 'assistantId'
+        ])
+        && data.classId is string
+        && data.praktikum is string
+        && data.kelas is string
+        && data.ruang is string
+        && data.date is string
+        && data.startTime is string
+        && data.endTime is string
+        && data.assistantId == request.auth.uid;
+    }
+
+    match /users/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role == 'praktikan'
+        && request.resource.data.name is string
+        && request.resource.data.identityNumber is string
+        && request.resource.data.program is string;
+      allow read: if signedIn() && (request.auth.uid == uid || isAssistant());
+      allow update, delete: if false;
+    }
+
+    match /classes/{classId} {
+      allow read: if isAssistant()
+        || (isPraktikan() && isEnrolled(classId, request.auth.uid));
+      allow create: if isAssistant() && validClass(request.resource.data);
+      allow update: if isAssistant()
+        && resource.data.assistantId == request.auth.uid
+        && validClass(request.resource.data);
+      allow delete: if isAssistant()
+        && resource.data.assistantId == request.auth.uid;
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if isAssistant()
+        || (isPraktikan() && isEnrolled(resource.data.classId, request.auth.uid));
+      allow create: if validSchedule(request.resource.data)
+        && ownsClassAfter(request.resource.data.classId);
+      allow update: if ownsSchedule(scheduleId)
+        && validSchedule(request.resource.data)
+        && ownsClass(request.resource.data.classId);
+      allow delete: if ownsSchedule(scheduleId);
+    }
+
+    match /participants/{participantId} {
+      allow read: if isAssistant()
+        || (isPraktikan() && resource.data.userId == request.auth.uid);
+      allow create: if isAssistant()
+        && request.resource.data.keys().hasAll(['classId', 'userId'])
+        && request.resource.data.classId is string
+        && request.resource.data.userId is string
+        && participantId == request.resource.data.classId + '_' + request.resource.data.userId
+        && ownsClass(request.resource.data.classId)
+        && get(userPath(request.resource.data.userId)).data.role == 'praktikan';
+      allow delete: if isAssistant()
+        && resource.data.classId is string
+        && ownsClass(resource.data.classId);
+      allow update: if false;
+    }
+
+    match /sessions/{sessionId} {
+      // Session status is public to signed-in app users; it contains no personal data.
+      allow read: if isKnownUser();
+      allow create: if isAssistant()
+        && request.resource.data.keys().hasOnly([
+          'scheduleId', 'status', 'openedAt', 'closedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'scheduleId', 'status', 'openedAt', 'closedAt'
+        ])
+        && request.resource.data.status == 'scheduled'
+        && request.resource.data.openedAt == null
+        && request.resource.data.closedAt == null
+        && ownsSchedule(request.resource.data.scheduleId);
+      allow update: if ownsScheduleForSession(resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'openedAt', 'closedAt'])
+        && (
+          (request.resource.data.status == 'open'
+            && request.resource.data.openedAt == request.time
+            && request.resource.data.closedAt == null)
+          || (request.resource.data.status == 'closed'
+            && request.resource.data.openedAt == resource.data.openedAt
+            && request.resource.data.closedAt == request.time)
+        );
+      allow delete: if false;
+    }
+
+    match /permissionRequests/{requestId} {
+      allow read: if isAssistant()
+        || (isPraktikan() && resource.data.userId == request.auth.uid);
+      allow create: if isPraktikan()
+        && request.resource.data.keys().hasOnly([
+          'sessionId', 'userId', 'userName', 'reason', 'aiPrediction', 'status', 'submittedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'sessionId', 'userId', 'userName', 'reason', 'status', 'submittedAt'
+        ])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.sessionId is string
+        && request.resource.data.userName is string
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() <= 1000
+        && request.resource.data.status == 'pending'
+        && request.resource.data.submittedAt == request.time
+        && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId));
+      allow update: if assistantOwnsSession(resource.data.sessionId)
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'decisionBy', 'decisionAt'])
+        && request.resource.data.status in ['approved', 'rejected']
+        && request.resource.data.decisionBy == request.auth.uid
+        && request.resource.data.decisionAt == request.time
+        && (request.resource.data.status != 'approved'
+          || matchingApprovedPermission(
+            resource.data.sessionId,
+            resource.data.userId,
+            requestId
+          ));
+      allow delete: if false;
+    }
+
+    match /attendance/{attendanceId} {
+      allow get: if isAssistant()
+        || (signedIn()
+          && attendanceId.matches('.*_' + request.auth.uid + '$'));
+      allow list: if isAssistant()
+        || (isPraktikan() && resource.data.userId == request.auth.uid);
+      allow create: if (isPraktikan()
+        && request.resource.data.keys().hasOnly(['sessionId', 'userId', 'checkedInAt', 'status'])
+        && request.resource.data.keys().hasAll(['sessionId', 'userId', 'checkedInAt'])
+        && request.resource.data.userId == request.auth.uid
+        && attendanceId == request.resource.data.sessionId + '_' + request.auth.uid
+        && request.resource.data.checkedInAt == request.time
+        && (!('status' in request.resource.data) || request.resource.data.status == 'present')
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.status == 'open')
+        || (isAssistant()
+          && request.resource.data.keys().hasOnly([
+            'sessionId', 'userId', 'status', 'checkedInAt', 'excusedAt',
+            'approvedBy', 'permissionRequestId'
+          ])
+          && request.resource.data.keys().hasAll([
+            'sessionId', 'userId', 'status', 'checkedInAt', 'excusedAt',
+            'approvedBy', 'permissionRequestId'
+          ])
+          && request.resource.data.userId is string
+          && attendanceId == request.resource.data.sessionId + '_' + request.resource.data.userId
+          && request.resource.data.status == 'excused'
+          && request.resource.data.checkedInAt == null
+          && request.resource.data.excusedAt == request.time
+          && request.resource.data.approvedBy == request.auth.uid
+          && assistantOwnsSession(request.resource.data.sessionId)
+          && matchingApprovedPermission(
+            request.resource.data.sessionId,
+            request.resource.data.userId,
+            request.resource.data.permissionRequestId
+          ));
+      allow update, delete: if false;
+    }
+  }
+}

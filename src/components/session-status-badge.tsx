@@ -16,18 +16,18 @@ export function SessionStatusBadge({ status }: { status: SessionStatus }) {
 
   const palette = {
     scheduled: {
-      backgroundColor: 'rgba(255, 255, 255, 0.45)',
-      borderColor: 'rgba(255, 255, 255, 0.7)',
+      backgroundColor: theme.glassInput,
+      borderColor: theme.glassBorder,
       color: theme.textSecondary,
     },
     open: {
-      backgroundColor: 'rgba(53, 64, 36, 0.12)',
-      borderColor: 'rgba(53, 64, 36, 0.4)',
+      backgroundColor: '#E5EAD8',
+      borderColor: theme.moss,
       color: theme.primary,
     },
     closed: {
       backgroundColor: theme.dangerSoft,
-      borderColor: 'rgba(180, 35, 24, 0.3)',
+      borderColor: theme.danger,
       color: theme.danger,
     },
   }[status];

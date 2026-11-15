@@ -3,7 +3,6 @@ import {
   collection,
   addDoc,
   doc,
-  getDoc,
   onSnapshot,
   query,
   runTransaction,
@@ -15,7 +14,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 
-import { db } from '@/services/firebase';
+import { getFirebaseDb } from '@/services/firebase';
 import type {
   AttendanceRecord,
   CheckInResult,
@@ -33,7 +32,10 @@ type SessionDocument = {
 type AttendanceDocument = {
   sessionId?: unknown;
   userId?: unknown;
+  status?: unknown;
   checkedInAt?: unknown;
+  excusedAt?: unknown;
+  permissionRequestId?: unknown;
 };
 
 function toIsoString(value: unknown): string | null {
@@ -73,12 +75,25 @@ function toAttendance(
   const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
   const userId = typeof data.userId === 'string' ? data.userId : '';
   const checkedInAt = toIsoString(data.checkedInAt);
+  const status = data.status === 'excused' ? 'excused' : 'present';
+  const excusedAt = toIsoString(data.excusedAt);
 
-  if (!sessionId || !userId || !checkedInAt) {
+  if (!sessionId || !userId || (status === 'present' && !checkedInAt)) {
     return null;
   }
 
-  return { id, sessionId, userId, checkedInAt };
+  return {
+    id,
+    sessionId,
+    userId,
+    status,
+    checkedInAt,
+    excusedAt,
+    permissionRequestId:
+      typeof data.permissionRequestId === 'string'
+        ? data.permissionRequestId
+        : null,
+  };
 }
 
 function collectAttendance(
@@ -87,7 +102,11 @@ function collectAttendance(
   return snapshot.docs
     .map((item) => toAttendance(item.id, item.data() as AttendanceDocument))
     .filter((item): item is AttendanceRecord => item !== null)
-    .sort((a, b) => a.checkedInAt.localeCompare(b.checkedInAt));
+    .sort((a, b) =>
+      (a.checkedInAt ?? a.excusedAt ?? '').localeCompare(
+        b.checkedInAt ?? b.excusedAt ?? '',
+      ),
+    );
 }
 
 export function subscribeToSessions(
@@ -95,7 +114,7 @@ export function subscribeToSessions(
   onError: (error: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    collection(db, 'sessions'),
+    collection(getFirebaseDb(), 'sessions'),
     (snapshot) => {
       onData(
         snapshot.docs.map((item) =>
@@ -113,7 +132,7 @@ export function subscribeToAttendanceForSession(
   onError: (error: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    query(collection(db, 'attendance'), where('sessionId', '==', sessionId)),
+    query(collection(getFirebaseDb(), 'attendance'), where('sessionId', '==', sessionId)),
     (snapshot) => onData(collectAttendance(snapshot)),
     (error) => onError(error),
   );
@@ -125,14 +144,14 @@ export function subscribeToAttendanceForUser(
   onError: (error: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    query(collection(db, 'attendance'), where('userId', '==', userId)),
+    query(collection(getFirebaseDb(), 'attendance'), where('userId', '==', userId)),
     (snapshot) => onData(collectAttendance(snapshot)),
     (error) => onError(error),
   );
 }
 
 export async function openSession(sessionId: string): Promise<void> {
-  await updateDoc(doc(db, 'sessions', sessionId), {
+  await updateDoc(doc(getFirebaseDb(), 'sessions', sessionId), {
     status: 'open',
     openedAt: serverTimestamp(),
     closedAt: null,
@@ -140,14 +159,14 @@ export async function openSession(sessionId: string): Promise<void> {
 }
 
 export async function closeSession(sessionId: string): Promise<void> {
-  await updateDoc(doc(db, 'sessions', sessionId), {
+  await updateDoc(doc(getFirebaseDb(), 'sessions', sessionId), {
     status: 'closed',
     closedAt: serverTimestamp(),
   });
 }
 
 export async function createSession(scheduleId: string): Promise<void> {
-  await addDoc(collection(db, 'sessions'), {
+  await addDoc(collection(getFirebaseDb(), 'sessions'), {
     scheduleId,
     status: 'scheduled',
     openedAt: null,
@@ -158,12 +177,14 @@ export async function checkIn(
   sessionId: string,
   userId: string,
 ): Promise<CheckInResult> {
+  const db = getFirebaseDb();
   const sessionRef = doc(db, 'sessions', sessionId);
   const attendanceRef = doc(db, 'attendance', `${sessionId}_${userId}`);
+  const checkedInAt = new Date().toISOString();
 
   const outcome = await runTransaction(
     db,
-    async (transaction): Promise<CheckInResult | { ok: true }> => {
+    async (transaction): Promise<CheckInResult> => {
       const sessionSnapshot = await transaction.get(sessionRef);
 
       if (!sessionSnapshot.exists()) {
@@ -177,33 +198,35 @@ export async function checkIn(
       const attendanceSnapshot = await transaction.get(attendanceRef);
 
       if (attendanceSnapshot.exists()) {
+        if (attendanceSnapshot.data().status === 'excused') {
+          return { ok: false, reason: 'excused' };
+        }
         return { ok: false, reason: 'already-checked-in' };
       }
 
       transaction.set(attendanceRef, {
         sessionId,
         userId,
+        status: 'present',
         checkedInAt: serverTimestamp(),
       });
 
-      return { ok: true };
+      return {
+        ok: true,
+        record: {
+          id: attendanceRef.id,
+          sessionId,
+          userId,
+          status: 'present',
+          checkedInAt,
+          excusedAt: null,
+          permissionRequestId: null,
+        },
+      };
     },
   );
 
-  if (!outcome.ok) {
-    return outcome;
-  }
-
-  const saved = await getDoc(attendanceRef);
-  const record = saved.exists()
-    ? toAttendance(saved.id, saved.data() as AttendanceDocument)
-    : null;
-
-  if (!record) {
-    throw new Error('Presensi tersimpan tetapi gagal dibaca ulang.');
-  }
-
-  return { ok: true, record };
+  return outcome;
 }
 
 export function subscribeToAllAttendance(
@@ -211,7 +234,7 @@ export function subscribeToAllAttendance(
   onError: (error: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    collection(db, 'attendance'),
+    collection(getFirebaseDb(), 'attendance'),
     (snapshot) => onData(collectAttendance(snapshot)),
     (error) => onError(error),
   );

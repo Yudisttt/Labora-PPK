@@ -24,15 +24,15 @@ export const Colors = {
     warningSoft: "#CFBB99",
     danger: "#B42318",
     dangerSoft: "#FDECEA",
-    // Tinted Green Glass - Kaca hijau transparan tembus warna krem background
+    // Opaque surfaces avoid Android alpha-layer artifacts on nested cards.
     glassGreen: "rgba(53, 64, 36, 0.45)",
     glassGreenLight: "rgba(136, 144, 99, 0.25)",
     glassGreenBorder: "rgba(53, 64, 36, 0.4)",
     glassGreenSheen: "rgba(255, 255, 255, 0.45)",
-    glassCard: "rgba(136, 144, 99, 0.18)",
-    glassBorder: "rgba(136, 144, 99, 0.38)",
+    glassCard: "#EDE4D5",
+    glassBorder: "#C8B995",
     glassBorderHighlight: "rgba(255, 255, 255, 0.65)",
-    glassInput: "rgba(255, 255, 255, 0.4)",
+    glassInput: "#F7F1E7",
   },
   dark: {
     text: "#4C3D19",
@@ -55,10 +55,10 @@ export const Colors = {
     glassGreenLight: "rgba(136, 144, 99, 0.25)",
     glassGreenBorder: "rgba(53, 64, 36, 0.4)",
     glassGreenSheen: "rgba(255, 255, 255, 0.45)",
-    glassCard: "rgba(136, 144, 99, 0.18)",
-    glassBorder: "rgba(136, 144, 99, 0.38)",
+    glassCard: "#EDE4D5",
+    glassBorder: "#C8B995",
     glassBorderHighlight: "rgba(255, 255, 255, 0.65)",
-    glassInput: "rgba(255, 255, 255, 0.4)",
+    glassInput: "#F7F1E7",
   },
 } as const;
 
