@@ -35,7 +35,10 @@ export type AttendanceRecord = {
   id: string;
   sessionId: string;
   userId: string;
-  checkedInAt: string;
+  status: 'present' | 'excused';
+  checkedInAt: string | null;
+  excusedAt: string | null;
+  permissionRequestId: string | null;
 };
 
 export type PermissionRequestStatus = 'pending' | 'approved' | 'rejected';
@@ -72,6 +75,7 @@ export type PermissionRequest = {
 export type CheckInFailureReason =
   | 'unknown-session'
   | 'not-open'
+  | 'excused'
   | 'already-checked-in'
   | 'unauthorized'
   | 'invalid-role';

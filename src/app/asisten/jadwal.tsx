@@ -33,7 +33,7 @@ import {
 type TabMode = 'jadwal' | 'rekap';
 type StatusFilter = 'all' | SessionStatus;
 type ModalSubTab = 'detail' | 'rekap';
-type AttendanceFilter = 'all' | 'attended' | 'absent';
+type AttendanceFilter = 'all' | 'attended' | 'excused' | 'absent';
 
 type ConfirmActionState = {
   type: 'open' | 'close' | 'reopen';
@@ -48,9 +48,9 @@ export default function AsistenJadwalScreen() {
     currentUser,
     users,
     schedules,
-    sessions,
     openSession,
     closeSession,
+    attendanceError,
     getUser,
     getSessionsForSchedule,
     getAttendanceForSession,
@@ -88,13 +88,16 @@ export default function AsistenJadwalScreen() {
   );
 
   // Quick Stats
-  const openSessionsCount = sessions.filter((s) => s.status === 'open').length;
-  const scheduledSessionsCount = sessions.filter(
-    (s) => s.status === 'scheduled',
+  const openSessionsCount = schedules.filter(
+    (schedule) => getSessionsForSchedule(schedule.id)[0]?.status === 'open',
   ).length;
-  const closedSessionsCount = sessions.filter(
-    (s) => s.status === 'closed',
+  const closedSessionsCount = schedules.filter(
+    (schedule) => getSessionsForSchedule(schedule.id)[0]?.status === 'closed',
   ).length;
+  const scheduledSessionsCount =
+    schedules.length - openSessionsCount - closedSessionsCount;
+  const attendancePermissionDenied =
+    attendanceError?.includes('permission-denied') ?? false;
 
   function showToast(message: string) {
     setFeedbackToast(message);
@@ -103,12 +106,34 @@ export default function AsistenJadwalScreen() {
     }, 3500);
   }
 
+  function getSessionActionError(error: unknown, action: string) {
+    const code =
+      error instanceof Error && 'code' in error
+        ? String(error.code)
+        : '';
+
+    if (code === 'permission-denied' || code === 'firestore/permission-denied') {
+      return 'Firebase menolak akses. Publikasikan aturan dari firestore.rules di Firebase Console, lalu coba lagi.';
+    }
+
+    if (code === 'not-found') {
+      return 'Dokumen sesi belum ada. Tekan “Buat Sesi” terlebih dahulu.';
+    }
+
+    return error instanceof Error
+      ? `${action}: ${error.message}`
+      : `${action}. Periksa koneksi lalu coba lagi.`;
+  }
+
   // Filter schedules based on status, assistant, and search query
   const filteredSchedules = useMemo(() => {
     return schedules.filter((schedule) => {
       const session = getSessionsForSchedule(schedule.id)[0];
 
-      if (statusFilter !== 'all' && session?.status !== statusFilter) {
+      if (
+        statusFilter !== 'all' &&
+        (session?.status ?? 'scheduled') !== statusFilter
+      ) {
         return false;
       }
 
@@ -162,8 +187,8 @@ export default function AsistenJadwalScreen() {
       showToast(
         'Sesi berhasil dibuat. Tekan "Buka Sesi Presensi" untuk memulai presensi.',
       );
-    } catch {
-      showToast('Gagal membuat sesi. Periksa koneksi lalu coba lagi.');
+    } catch (error) {
+      showToast(getSessionActionError(error, 'Gagal membuat sesi'));
     }
   }
 
@@ -186,8 +211,8 @@ export default function AsistenJadwalScreen() {
           `Sesi ${schedule.praktikum} (${schedule.kelas}) berhasil ditutup. Praktikan tidak dapat lagi presensi.`,
         );
       }
-    } catch {
-      showToast('Gagal memperbarui sesi. Periksa koneksi lalu coba lagi.');
+    } catch (error) {
+      showToast(getSessionActionError(error, 'Gagal memperbarui sesi'));
     } finally {
       setConfirmAction(null);
     }
@@ -199,15 +224,18 @@ export default function AsistenJadwalScreen() {
     const sessionRecords = getAttendanceForSession(session.id);
 
     const attendedUsers: { user: User; checkedInAt: string }[] = [];
+    const excusedUsers: { user: User; excusedAt: string | null }[] = [];
     const absentUsers: User[] = [];
 
     praktikanUsers.forEach((praktikan) => {
       const record = sessionRecords.find((r) => r.userId === praktikan.id);
-      if (record) {
+      if (record?.status === 'present' && record.checkedInAt) {
         attendedUsers.push({
           user: praktikan,
           checkedInAt: record.checkedInAt,
         });
+      } else if (record?.status === 'excused') {
+        excusedUsers.push({ user: praktikan, excusedAt: record.excusedAt });
       } else {
         absentUsers.push(praktikan);
       }
@@ -215,6 +243,11 @@ export default function AsistenJadwalScreen() {
 
     const totalStudents = praktikanUsers.length;
     const attendedCount = attendedUsers.length;
+    const excusedCount = excusedUsers.length;
+    const coveragePercent =
+      totalStudents > 0
+        ? Math.round(((attendedCount + excusedCount) / totalStudents) * 100)
+        : 0;
     const percentage =
       totalStudents > 0
         ? Math.round((attendedCount / totalStudents) * 100)
@@ -222,8 +255,11 @@ export default function AsistenJadwalScreen() {
 
     return {
       attendedUsers,
+      excusedUsers,
       absentUsers,
       attendedCount,
+      excusedCount,
+      coveragePercent,
       totalStudents,
       percentage,
     };
@@ -231,8 +267,14 @@ export default function AsistenJadwalScreen() {
 
   // Generate structured report text for export/copy (SRS-06)
   function generateReportText(schedule: Schedule, session: Session) {
-    const { attendedUsers, absentUsers, attendedCount, totalStudents, percentage } =
-      getSessionAttendanceData(session);
+    const {
+      attendedUsers,
+      excusedUsers,
+      absentUsers,
+      attendedCount,
+      totalStudents,
+      percentage,
+    } = getSessionAttendanceData(session);
 
     const assistant = getUser(schedule.assistantId);
     const sessionStatusLabel =
@@ -260,7 +302,7 @@ export default function AsistenJadwalScreen() {
         ? `Waktu Ditutup  : ${formatDateTimeWithSeconds(session.closedAt)} WIB`
         : null,
       '----------------------------------------',
-      `RINGKASAN KEHADIRAN: ${attendedCount} / ${totalStudents} Mahasiswa (${percentage}%)`,
+      `RINGKASAN: ${attendedCount} hadir · ${excusedUsers.length} izin · ${absentUsers.length} belum hadir dari ${totalStudents} mahasiswa (${percentage}% hadir)`,
       '----------------------------------------',
       '',
       `DAFTAR HADIR (${attendedUsers.length}):`,
@@ -270,6 +312,16 @@ export default function AsistenJadwalScreen() {
             .map(
               (item, idx) =>
                 `  ${idx + 1}. ${item.user.name} (${item.user.identityNumber}) - Hadir pukul ${formatTimeWithSeconds(item.checkedInAt)} WIB`,
+            )
+            .join('\n'),
+      '',
+      `DAFTAR IZIN DISETUJUI (${excusedUsers.length}):`,
+      excusedUsers.length === 0
+        ? '  (Belum ada izin yang disetujui)'
+        : excusedUsers
+            .map(
+              (item, idx) =>
+                `  ${idx + 1}. ${item.user.name} (${item.user.identityNumber})${item.excusedAt ? ` - Disetujui ${formatDateTimeWithSeconds(item.excusedAt)} WIB` : ''}`,
             )
             .join('\n'),
       '',
@@ -363,8 +415,8 @@ export default function AsistenJadwalScreen() {
             style={[
               styles.headerGlassCard,
               {
-                backgroundColor: 'rgba(53, 64, 36, 0.78)',
-                borderColor: 'rgba(255, 255, 255, 0.35)',
+                backgroundColor: theme.primary,
+                borderColor: theme.primary,
               },
             ]}>
             <View style={styles.headerBadge}>
@@ -396,6 +448,23 @@ export default function AsistenJadwalScreen() {
               </ThemedText>
             </View>
           </View>
+
+          {attendanceError ? (
+            <View
+              style={[
+                styles.attendanceErrorBanner,
+                { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.danger }}>
+                Rekap presensi gagal dimuat
+              </ThemedText>
+              <ThemedText type="small" style={{ color: theme.danger }}>
+                {attendancePermissionDenied
+                  ? 'Firebase menolak akses baca attendance untuk akun asisten. Publikasikan firestore.rules terbaru di project labora-89bf3.'
+                  : 'Periksa koneksi Firebase lalu muat ulang halaman.'}
+              </ThemedText>
+            </View>
+          ) : null}
 
           <Pressable
             accessibilityRole="button"
@@ -430,12 +499,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'all'
-                      ? 'rgba(53, 64, 36, 0.85)'
-                      : 'rgba(136, 144, 99, 0.25)',
+                      ? theme.primary
+                      : theme.glassCard,
                   borderColor:
                     statusFilter === 'all'
                       ? theme.primary
-                      : 'rgba(53, 64, 36, 0.35)',
+                      : theme.border,
                 },
                 pressed && styles.pressed,
               ]}>
@@ -473,12 +542,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'open'
-                      ? 'rgba(53, 64, 36, 0.85)'
-                      : 'rgba(136, 144, 99, 0.25)',
+                      ? theme.primary
+                      : theme.glassCard,
                   borderColor:
                     statusFilter === 'open'
                       ? theme.primary
-                      : 'rgba(53, 64, 36, 0.35)',
+                      : theme.border,
                 },
                 pressed && styles.pressed,
               ]}>
@@ -521,12 +590,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'scheduled'
-                      ? 'rgba(53, 64, 36, 0.85)'
-                      : 'rgba(136, 144, 99, 0.25)',
+                      ? theme.primary
+                      : theme.glassCard,
                   borderColor:
                     statusFilter === 'scheduled'
                       ? theme.primary
-                      : 'rgba(53, 64, 36, 0.35)',
+                      : theme.border,
                 },
                 pressed && styles.pressed,
               ]}>
@@ -564,12 +633,12 @@ export default function AsistenJadwalScreen() {
                 {
                   backgroundColor:
                     statusFilter === 'closed'
-                      ? 'rgba(53, 64, 36, 0.85)'
-                      : 'rgba(136, 144, 99, 0.25)',
+                      ? theme.primary
+                      : theme.glassCard,
                   borderColor:
                     statusFilter === 'closed'
                       ? theme.primary
-                      : 'rgba(53, 64, 36, 0.35)',
+                      : theme.border,
                 },
                 pressed && styles.pressed,
               ]}>
@@ -605,8 +674,8 @@ export default function AsistenJadwalScreen() {
             style={[
               styles.tabNavContainer,
               {
-                backgroundColor: 'rgba(136, 144, 99, 0.2)',
-                borderColor: 'rgba(53, 64, 36, 0.3)',
+                backgroundColor: theme.glassCard,
+                borderColor: theme.border,
               },
             ]}>
             <Pressable
@@ -694,11 +763,8 @@ export default function AsistenJadwalScreen() {
 
                 {/* Filter Chips & PJ Toggle */}
                 <View style={styles.filterRow}>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.filterChipsScroll}
-                    contentContainerStyle={styles.filterChipsContainer}>
+                  <View style={styles.filterChipsScroll}>
+                    <View style={styles.filterChipsContainer}>
                     <Pressable
                       onPress={() => setStatusFilter('all')}
                       style={[
@@ -794,7 +860,8 @@ export default function AsistenJadwalScreen() {
                         Ditutup ({closedSessionsCount})
                       </ThemedText>
                     </Pressable>
-                  </ScrollView>
+                    </View>
+                  </View>
 
                   <Pressable
                     accessibilityRole="button"
@@ -870,6 +937,8 @@ export default function AsistenJadwalScreen() {
                       ? getSessionAttendanceData(session)
                       : {
                           attendedCount: 0,
+                          excusedCount: 0,
+                          coveragePercent: 0,
                           totalStudents: praktikanUsers.length,
                           percentage: 0,
                         };
@@ -946,7 +1015,7 @@ export default function AsistenJadwalScreen() {
                               Tanggal
                             </ThemedText>
                             <ThemedText type="smallBold">
-                              {formatDate(schedule.date)}
+                              {new Date(`${schedule.date.slice(0, 10)}T00:00:00`).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </ThemedText>
                           </View>
 
@@ -1042,12 +1111,15 @@ export default function AsistenJadwalScreen() {
                               themeColor="textSecondary">
                               Kehadiran Praktikan:
                             </ThemedText>
-                            <ThemedText type="smallBold">
-                              {attendanceData.attendedCount} dari{' '}
-                              {attendanceData.totalStudents} Mahasiswa (
-                              {attendanceData.percentage}%)
+                            <ThemedText type="smallBold" style={{ flexShrink: 1 }}>
+                              {attendanceData.attendedCount} hadir ·{' '}
+                              {attendanceData.excusedCount} izin ·{' '}
+                              {Math.max(0, attendanceData.totalStudents - attendanceData.attendedCount - attendanceData.excusedCount)} belum hadir
                             </ThemedText>
                           </View>
+                          <ThemedText type="small" themeColor="textSecondary">
+                            {attendanceData.percentage}% hadir dari {attendanceData.totalStudents} praktikan
+                          </ThemedText>
                           <View
                             style={[
                               styles.progressBarTrack,
@@ -1060,7 +1132,7 @@ export default function AsistenJadwalScreen() {
                               style={[
                                 styles.progressBarFill,
                                 {
-                                  width: `${attendanceData.percentage}%`,
+                                  width: `${attendanceData.coveragePercent}%`,
                                   backgroundColor:
                                     attendanceData.percentage >= 100
                                       ? theme.primary
@@ -1306,8 +1378,10 @@ export default function AsistenJadwalScreen() {
 
                     const {
                       attendedUsers,
+                      excusedUsers,
                       absentUsers,
                       attendedCount,
+                      excusedCount,
                       totalStudents,
                       percentage,
                     } = getSessionAttendanceData(session);
@@ -1327,6 +1401,14 @@ export default function AsistenJadwalScreen() {
                       return (
                         user.name.toLowerCase().includes(q) ||
                         user.identityNumber.toLowerCase().includes(q)
+                      );
+                    });
+                    const filteredExcused = excusedUsers.filter((item) => {
+                      if (!rekapSearchPraktikan.trim()) return true;
+                      const q = rekapSearchPraktikan.toLowerCase();
+                      return (
+                        item.user.name.toLowerCase().includes(q) ||
+                        item.user.identityNumber.toLowerCase().includes(q)
                       );
                     });
 
@@ -1363,8 +1445,8 @@ export default function AsistenJadwalScreen() {
                           ]}>
                           <View style={styles.rekapSummaryTextRow}>
                             <ThemedText type="smallBold">
-                              Kehadiran: {attendedCount} / {totalStudents}{' '}
-                              Mahasiswa ({percentage}%)
+                              {attendedCount} hadir · {excusedCount} izin ·{' '}
+                              {Math.max(0, totalStudents - attendedCount - excusedCount)} belum hadir ({percentage}% hadir)
                             </ThemedText>
                             <Pressable
                               accessibilityRole="button"
@@ -1418,6 +1500,7 @@ export default function AsistenJadwalScreen() {
                           </ThemedText>
 
                           {filteredAttended.length === 0 &&
+                          filteredExcused.length === 0 &&
                           filteredAbsent.length === 0 ? (
                             <ThemedText
                               type="small"
@@ -1491,6 +1574,14 @@ export default function AsistenJadwalScreen() {
                                       WIB
                                     </ThemedText>
                                   </View>
+                                </View>
+                              ))}
+
+                              {filteredExcused.map((item) => (
+                                <View key={item.user.id} style={[styles.praktikanRow, { backgroundColor: '#F8F1D9', borderColor: theme.moss }]}>
+                                  <View style={[styles.praktikanAvatar, { backgroundColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.primaryText, fontSize: 12 }}>{initials(item.user.name)}</ThemedText></View>
+                                  <View style={styles.praktikanMeta}><ThemedText type="smallBold">{item.user.name}</ThemedText><ThemedText type="small" themeColor="textSecondary">{item.user.identityNumber} · {item.user.program}</ThemedText></View>
+                                  <View style={styles.praktikanAttendanceStatus}><View style={[styles.statusChipBelumHadir, { backgroundColor: '#E9E2C8', borderColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.text, fontSize: 11 }}>✓ Izin Disetujui</ThemedText></View><ThemedText type="small" themeColor="textSecondary" style={styles.timestampText}>{item.excusedAt ? `${formatTimeWithSeconds(item.excusedAt)} WIB` : 'Disetujui'}</ThemedText></View>
                                 </View>
                               ))}
 
@@ -1961,8 +2052,10 @@ export default function AsistenJadwalScreen() {
                         {(() => {
                           const {
                             attendedUsers,
+                            excusedUsers,
                             absentUsers,
                             attendedCount,
+                            excusedCount,
                             totalStudents,
                             percentage,
                           } = getSessionAttendanceData(activeModalSession);
@@ -1988,6 +2081,14 @@ export default function AsistenJadwalScreen() {
                               user.identityNumber.toLowerCase().includes(q)
                             );
                           });
+                          const filteredExcused = excusedUsers.filter((item) => {
+                            if (!modalSearchPraktikan.trim()) return true;
+                            const q = modalSearchPraktikan.toLowerCase();
+                            return (
+                              item.user.name.toLowerCase().includes(q) ||
+                              item.user.identityNumber.toLowerCase().includes(q)
+                            );
+                          });
 
                           return (
                             <>
@@ -2008,8 +2109,8 @@ export default function AsistenJadwalScreen() {
                                     <ThemedText
                                       type="small"
                                       themeColor="textSecondary">
-                                      {attendedCount} dari {totalStudents}{' '}
-                                      Mahasiswa Hadir ({percentage}%)
+                                      {attendedCount} hadir · {excusedCount} izin ·{' '}
+                                      {Math.max(0, totalStudents - attendedCount - excusedCount)} belum hadir ({percentage}% hadir)
                                     </ThemedText>
                                   </View>
                                   <Pressable
@@ -2132,6 +2233,14 @@ export default function AsistenJadwalScreen() {
                                   </Pressable>
 
                                   <Pressable
+                                    onPress={() => setModalAttendanceFilter('excused')}
+                                    style={[styles.chip, { backgroundColor: modalAttendanceFilter === 'excused' ? theme.primary : theme.background, borderColor: theme.border }]}>
+                                    <ThemedText type="smallBold" style={{ color: modalAttendanceFilter === 'excused' ? theme.primaryText : theme.text }}>
+                                      Izin ({excusedCount})
+                                    </ThemedText>
+                                  </Pressable>
+
+                                  <Pressable
                                     onPress={() =>
                                       setModalAttendanceFilter('absent')
                                     }
@@ -2228,6 +2337,15 @@ export default function AsistenJadwalScreen() {
                                     </View>
                                   ))}
 
+                                {(modalAttendanceFilter === 'all' || modalAttendanceFilter === 'excused') &&
+                                  filteredExcused.map((item) => (
+                                    <View key={item.user.id} style={[styles.praktikanRow, { backgroundColor: '#F8F1D9', borderColor: theme.moss }]}>
+                                      <View style={[styles.praktikanAvatar, { backgroundColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.primaryText, fontSize: 12 }}>{initials(item.user.name)}</ThemedText></View>
+                                      <View style={styles.praktikanMeta}><ThemedText type="smallBold">{item.user.name}</ThemedText><ThemedText type="small" themeColor="textSecondary">{item.user.identityNumber} · {item.user.program}</ThemedText></View>
+                                      <View style={styles.praktikanAttendanceStatus}><View style={[styles.statusChipBelumHadir, { backgroundColor: '#E9E2C8', borderColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.text, fontSize: 11 }}>✓ Izin Disetujui</ThemedText></View><ThemedText type="small" themeColor="textSecondary" style={styles.timestampText}>{item.excusedAt ? `${formatTimeWithSeconds(item.excusedAt)} WIB` : 'Disetujui'}</ThemedText></View>
+                                    </View>
+                                  ))}
+
                                 {(modalAttendanceFilter === 'all' ||
                                   modalAttendanceFilter === 'absent') &&
                                   filteredAbsent.map((user) => (
@@ -2294,6 +2412,7 @@ export default function AsistenJadwalScreen() {
                                   ))}
 
                                 {filteredAttended.length === 0 &&
+                                  filteredExcused.length === 0 &&
                                   filteredAbsent.length === 0 && (
                                     <ThemedText
                                       type="small"
@@ -2529,20 +2648,15 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     gap: Spacing.two,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
   },
   headerUserPill: {
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.three,
     paddingVertical: 6,
     borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#889063',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderColor: '#AAB18B',
   },
   manageDataButton: {
     flexDirection: 'row',
@@ -2576,9 +2690,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.half,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    backgroundColor: '#889063',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.45)',
+    borderColor: '#AAB18B',
   },
   headerTitle: {
     fontSize: 22,
@@ -2616,18 +2730,14 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flexGrow: 1,
-    flexBasis: 90,
+    flexBasis: '47%',
+    maxWidth: '49%',
     alignItems: 'center',
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.two,
     borderRadius: 22,
     borderWidth: 1.5,
     gap: Spacing.half,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 2,
   },
   statValueRow: {
     flexDirection: 'row',
@@ -2649,6 +2759,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.two,
+    padding: Spacing.half,
+    borderWidth: 1,
+    borderRadius: 18,
   },
   tabNavButton: {
     flexGrow: 1,
@@ -2670,7 +2783,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.75)',
+    borderColor: '#C8B995',
     borderRadius: 16,
     paddingHorizontal: Spacing.three,
     paddingVertical: Platform.OS === 'ios' ? Spacing.two : Spacing.one,
@@ -2686,19 +2799,18 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.half,
   },
   filterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: 'column',
+    alignItems: 'stretch',
     gap: Spacing.two,
   },
   filterChipsScroll: {
-    flex: 1,
-    minWidth: 0,
+    width: '100%',
   },
   filterChipsContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: Spacing.one,
-    paddingVertical: 2,
+    paddingVertical: Spacing.half,
   },
   chip: {
     paddingVertical: 6,
@@ -2707,6 +2819,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
   },
   mySchedulesToggle: {
+    alignSelf: 'flex-start',
     flexShrink: 0,
     minHeight: 44,
     alignItems: 'center',
@@ -2743,11 +2856,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1.5,
     gap: Spacing.three,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 2,
   },
   scheduleCardActive: {
     borderWidth: 2,
@@ -2821,9 +2929,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   attendanceProgressMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 2,
+  },
+  attendanceErrorBanner: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: Spacing.three,
+    gap: Spacing.one,
   },
   progressBarTrack: {
     height: 8,

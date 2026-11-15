@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
   cardHeading: { flex: 1, gap: Spacing.half },
   statusPill: { borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
   detailBlock: { gap: Spacing.one },
-  aiBlock: { gap: Spacing.one, padding: Spacing.two, borderRadius: 10, backgroundColor: 'rgba(136, 144, 99, 0.14)' },
+  aiBlock: { gap: Spacing.one, padding: Spacing.two, borderRadius: 10, backgroundColor: '#EDE4D5' },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.one },
   actionButton: { flexGrow: 1, minWidth: 120, alignItems: 'center', justifyContent: 'center', paddingVertical: Spacing.two, paddingHorizontal: Spacing.three, borderRadius: 10 },
   rejectButton: { borderWidth: 1 },

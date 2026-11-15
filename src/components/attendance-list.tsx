@@ -22,15 +22,20 @@ export function AttendanceList({
   const { records, loading, error } = useSessionAttendance(sessionId);
 
   const attendanceByUser = useMemo(() => {
-    const map = new Map<string, string>();
+    const map = new Map<string, { status: string; at: string | null }>();
 
-    records.forEach((record) => map.set(record.userId, record.checkedInAt));
+    records.forEach((record) =>
+      map.set(record.userId, {
+        status: record.status,
+        at: record.checkedInAt ?? record.excusedAt,
+      }),
+    );
 
     return map;
   }, [records]);
 
   const presentCount = participants.filter((participant) =>
-    attendanceByUser.has(participant.id),
+    attendanceByUser.get(participant.id)?.status === 'present',
   ).length;
 
   return (
@@ -60,7 +65,7 @@ export function AttendanceList({
         </ThemedText>
       ) : (
         participants.map((participant) => {
-          const checkedInAt = attendanceByUser.get(participant.id);
+          const record = attendanceByUser.get(participant.id);
 
           return (
             <View key={participant.id} style={styles.row}>
@@ -74,9 +79,13 @@ export function AttendanceList({
               <ThemedText
                 type="smallBold"
                 style={{
-                  color: checkedInAt ? theme.success : theme.textSecondary,
+                  color: record ? theme.success : theme.textSecondary,
                 }}>
-                {checkedInAt ? formatTime(checkedInAt) : 'Belum'}
+                {record?.status === 'excused'
+                  ? 'Izin disetujui'
+                  : record?.at
+                    ? formatTime(record.at)
+                    : 'Belum'}
               </ThemedText>
             </View>
           );

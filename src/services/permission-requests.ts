@@ -13,7 +13,7 @@ import {
   type Unsubscribe,
 } from 'firebase/firestore';
 
-import { db } from '@/services/firebase';
+import { getFirebaseDb } from '@/services/firebase';
 import type {
   PermissionAiPrediction,
   PermissionRequest,
@@ -148,7 +148,7 @@ export function subscribeToPermissionRequestsForUser(
 ): Unsubscribe {
   return onSnapshot(
     query(
-      collection(db, 'permissionRequests'),
+      collection(getFirebaseDb(), 'permissionRequests'),
       where('userId', '==', userId),
     ),
     (snapshot) => onData(collectPermissionRequests(snapshot)),
@@ -161,7 +161,7 @@ export function subscribeToAllPermissionRequests(
   onError: (error: Error) => void,
 ): Unsubscribe {
   return onSnapshot(
-    collection(db, 'permissionRequests'),
+    collection(getFirebaseDb(), 'permissionRequests'),
     (snapshot) => onData(collectPermissionRequests(snapshot)),
     (error) => onError(error),
   );
@@ -176,6 +176,7 @@ export async function decidePermissionRequest(
     throw new Error('Identitas pengajuan atau asisten belum tersedia.');
   }
 
+  const db = getFirebaseDb();
   const requestRef = doc(db, 'permissionRequests', requestId);
 
   await runTransaction(db, async (transaction) => {
@@ -187,6 +188,45 @@ export async function decidePermissionRequest(
 
     if (requestSnapshot.data().status !== 'pending') {
       throw new Error('Pengajuan ini sudah diputuskan oleh asisten lain.');
+    }
+
+    const requestData = requestSnapshot.data();
+    if (decision === 'approved') {
+      const sessionId =
+        typeof requestData.sessionId === 'string' ? requestData.sessionId : '';
+      const userId =
+        typeof requestData.userId === 'string' ? requestData.userId : '';
+
+      if (!sessionId || !userId) {
+        throw new Error('Data sesi atau praktikan pada pengajuan tidak valid.');
+      }
+
+      const sessionRef = doc(db, 'sessions', sessionId);
+      const attendanceRef = doc(db, 'attendance', `${sessionId}_${userId}`);
+      const sessionSnapshot = await transaction.get(sessionRef);
+      const attendanceSnapshot = await transaction.get(attendanceRef);
+
+      if (!sessionSnapshot.exists()) {
+        throw new Error('Sesi praktikum pada pengajuan tidak ditemukan.');
+      }
+
+      if (attendanceSnapshot.exists()) {
+        throw new Error(
+          attendanceSnapshot.data().status === 'excused'
+            ? 'Praktikan sudah memiliki status izin pada sesi ini.'
+            : 'Praktikan sudah presensi; status kehadiran tidak dapat diubah menjadi izin.',
+        );
+      }
+
+      transaction.set(attendanceRef, {
+        sessionId,
+        userId,
+        status: 'excused',
+        checkedInAt: null,
+        excusedAt: serverTimestamp(),
+        approvedBy: assistantId,
+        permissionRequestId: requestId,
+      });
     }
 
     transaction.update(requestRef, {
@@ -214,7 +254,7 @@ export async function submitPermissionRequest(
     throw new Error('Alasan izin maksimal 1000 karakter.');
   }
 
-  const request = await addDoc(collection(db, 'permissionRequests'), {
+  const request = await addDoc(collection(getFirebaseDb(), 'permissionRequests'), {
     sessionId: input.sessionId,
     userId: input.userId,
     userName: input.userName.trim(),

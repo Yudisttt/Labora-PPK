@@ -1,6 +1,5 @@
 import { router } from "expo-router";
 import { useState } from "react";
-import { router } from "expo-router";
 import {
   Alert,
   Modal,
@@ -26,7 +25,7 @@ import type { Schedule, Session } from "@/types";
 import { formatDate, formatDateTime, formatTime } from "@/utils/format";
 
 type TabMode = "jadwal" | "riwayat";
-type ScheduleFilter = "all" | "open" | "attended";
+type ScheduleFilter = "all" | "open" | "recorded";
 
 export default function PraktikanJadwalScreen() {
   const theme = useTheme();
@@ -37,6 +36,7 @@ export default function PraktikanJadwalScreen() {
     sessions,
     checkIn,
     hasCheckedIn,
+    isExcused,
     getUser,
     getSessionsForSchedule,
     getAttendanceForUser,
@@ -70,7 +70,10 @@ export default function PraktikanJadwalScreen() {
     if (scheduleFilter === "open") return session?.status === "open";
 
     return Boolean(
-      session && currentUser && hasCheckedIn(session.id, currentUser.id),
+      session &&
+        currentUser &&
+        (hasCheckedIn(session.id, currentUser.id) ||
+          isExcused(session.id, currentUser.id)),
     );
   });
 
@@ -86,6 +89,10 @@ export default function PraktikanJadwalScreen() {
   const isCheckedInForActiveModal =
     activeModalSession && currentUser
       ? hasCheckedIn(activeModalSession.id, currentUser.id)
+      : false;
+  const isExcusedForActiveModal =
+    activeModalSession && currentUser
+      ? isExcused(activeModalSession.id, currentUser.id)
       : false;
 
   function showMessage(title: string, message: string) {
@@ -115,13 +122,39 @@ export default function PraktikanJadwalScreen() {
       );
       return;
     }
+    if (isExcused(session.id, currentUser.id)) {
+      showMessage(
+        'Izin Disetujui',
+        'Pengajuan izin untuk sesi ini sudah disetujui. Kamu tidak perlu presensi manual.',
+      );
+      return;
+    }
 
-    const result = await checkIn(session.id, currentUser.id);
+    let result: Awaited<ReturnType<typeof checkIn>>;
+    try {
+      result = await checkIn(session.id, currentUser.id);
+    } catch (error) {
+      const code =
+        error instanceof Error && 'code' in error
+          ? String(error.code)
+          : '';
+      showMessage(
+        code === 'permission-denied'
+          ? 'Presensi ditolak oleh Firestore'
+          : 'Presensi gagal',
+        code === 'permission-denied'
+          ? 'Aturan Firestore untuk attendance menolak pembacaan atau penyimpanan. Pastikan firestore.rules terbaru sudah dipublikasikan pada project labora-89bf3.'
+          : error instanceof Error
+            ? error.message
+            : 'Periksa koneksi lalu coba lagi.',
+      );
+      return;
+    }
 
     if (result.ok) {
       showMessage(
         "Presensi Berhasil",
-        `Kehadiran Anda pada ${schedule.praktikum} (${schedule.kelas}) tercatat pada ${formatTime(result.record.checkedInAt)}.`,
+        `Kehadiran Anda pada ${schedule.praktikum} (${schedule.kelas}) tercatat pada ${formatTime(result.record.checkedInAt ?? new Date().toISOString())}.`,
       );
       return;
     }
@@ -138,6 +171,11 @@ export default function PraktikanJadwalScreen() {
       );
     } else if (result.reason === "unknown-session") {
       showMessage("Gagal", "Sesi praktikum tidak ditemukan.");
+    } else if (result.reason === "excused") {
+      showMessage(
+        'Izin Disetujui',
+        'Kamu sudah berstatus izin untuk sesi ini dan tidak perlu presensi manual.',
+      );
     } else if (result.reason === "unauthorized") {
       showMessage(
         "Akses Ditolak",
@@ -198,8 +236,8 @@ export default function PraktikanJadwalScreen() {
             style={[
               styles.headerGlassCard,
               {
-                backgroundColor: 'rgba(53, 64, 36, 0.78)',
-                borderColor: 'rgba(255, 255, 255, 0.35)',
+                backgroundColor: theme.primary,
+                borderColor: theme.primary,
               },
             ]}>
             <View style={styles.headerGlassBadge}>
@@ -214,16 +252,20 @@ export default function PraktikanJadwalScreen() {
             </ThemedText>
             <Pressable
               accessibilityRole="button"
+              accessibilityHint="Membuka formulir pengajuan izin."
               onPress={() =>
                 router.push("/praktikan/izin" as Parameters<typeof router.push>[0])
               }
               style={({ pressed }) => [
                 styles.permissionButton,
-                { backgroundColor: theme.primary },
+                {
+                  backgroundColor: theme.primaryText,
+                  borderColor: theme.primaryText,
+                },
                 pressed && styles.pressed,
               ]}
             >
-              <ThemedText type="smallBold" style={{ color: theme.primaryText }}>
+              <ThemedText type="smallBold" style={{ color: theme.primary }}>
                 Ajukan Izin
               </ThemedText>
             </Pressable>
@@ -245,12 +287,12 @@ export default function PraktikanJadwalScreen() {
                 {
                   backgroundColor:
                     scheduleFilter === "all"
-                      ? 'rgba(53, 64, 36, 0.85)'
-                      : 'rgba(136, 144, 99, 0.25)',
+                      ? theme.primary
+                      : theme.glassCard,
                   borderColor:
                     scheduleFilter === "all"
                       ? theme.primary
-                      : 'rgba(53, 64, 36, 0.35)',
+                      : theme.border,
                 },
                 pressed && styles.pressed,
               ]}
@@ -292,12 +334,12 @@ export default function PraktikanJadwalScreen() {
                 {
                   backgroundColor:
                     scheduleFilter === "open"
-                      ? 'rgba(53, 64, 36, 0.85)'
-                      : 'rgba(136, 144, 99, 0.25)',
+                      ? theme.primary
+                      : theme.glassCard,
                   borderColor:
                     scheduleFilter === "open"
                       ? theme.primary
-                      : 'rgba(53, 64, 36, 0.35)',
+                      : theme.border,
                 },
                 pressed && styles.pressed,
               ]}
@@ -332,19 +374,19 @@ export default function PraktikanJadwalScreen() {
 
             <Pressable
               accessibilityRole="button"
-              accessibilityState={{ selected: scheduleFilter === "attended" }}
-              onPress={() => selectScheduleFilter("attended")}
+              accessibilityState={{ selected: scheduleFilter === "recorded" }}
+              onPress={() => selectScheduleFilter("recorded")}
               style={({ pressed }) => [
                 styles.statCard,
                 {
                   backgroundColor:
-                    scheduleFilter === "attended"
-                      ? 'rgba(53, 64, 36, 0.85)'
-                      : 'rgba(136, 144, 99, 0.25)',
-                  borderColor:
-                    scheduleFilter === "attended"
+                    scheduleFilter === "recorded"
                       ? theme.primary
-                      : 'rgba(53, 64, 36, 0.35)',
+                      : theme.glassCard,
+                  borderColor:
+                    scheduleFilter === "recorded"
+                      ? theme.primary
+                      : theme.border,
                 },
                 pressed && styles.pressed,
               ]}
@@ -355,7 +397,7 @@ export default function PraktikanJadwalScreen() {
                   styles.statValue,
                   {
                     color:
-                      scheduleFilter === "attended"
+                      scheduleFilter === "recorded"
                         ? theme.primaryText
                         : theme.primary,
                   },
@@ -367,13 +409,13 @@ export default function PraktikanJadwalScreen() {
                 type="smallBold"
                 style={{
                   color:
-                    scheduleFilter === "attended"
+                  scheduleFilter === "recorded"
                       ? theme.primaryText
                       : theme.textSecondary,
                   fontSize: 11,
                 }}
               >
-                Sudah Presensi
+                Hadir / Izin
               </ThemedText>
             </Pressable>
           </View>
@@ -383,8 +425,8 @@ export default function PraktikanJadwalScreen() {
             style={[
               styles.tabContainer,
               {
-                backgroundColor: 'rgba(136, 144, 99, 0.2)',
-                borderColor: 'rgba(53, 64, 36, 0.3)',
+                backgroundColor: theme.glassCard,
+                borderColor: theme.border,
               },
             ]}>
             <Pressable
@@ -462,6 +504,10 @@ export default function PraktikanJadwalScreen() {
                     session && currentUser
                       ? hasCheckedIn(session.id, currentUser.id)
                       : false;
+                  const isExcusedForSchedule =
+                    session && currentUser
+                      ? isExcused(session.id, currentUser.id)
+                      : false;
                   const assistant = getUser(schedule.assistantId);
 
                   return (
@@ -470,8 +516,8 @@ export default function PraktikanJadwalScreen() {
                       style={[
                         styles.card,
                         {
-                          backgroundColor: 'rgba(255, 248, 238, 0.45)',
-                          borderColor: isOpen ? theme.success : 'rgba(255, 255, 255, 0.65)',
+                          backgroundColor: theme.glassInput,
+                          borderColor: isOpen ? theme.success : theme.glassBorder,
                         },
                         isOpen && styles.cardHighlight,
                       ]}
@@ -547,7 +593,19 @@ export default function PraktikanJadwalScreen() {
                         </Pressable>
 
                         {/* Tombol Presensi Realtime (SRS-02) */}
-                        {isOpen ? (
+                        {isExcusedForSchedule ? (
+                          <View
+                            style={[
+                              styles.checkedInBadge,
+                              { backgroundColor: theme.warningSoft },
+                            ]}>
+                            <ThemedText
+                              type="smallBold"
+                              style={{ color: theme.text }}>
+                              Izin Disetujui
+                            </ThemedText>
+                          </View>
+                        ) : isOpen ? (
                           isCheckedIn ? (
                             <View
                               style={[
@@ -660,10 +718,10 @@ export default function PraktikanJadwalScreen() {
                       style={({ pressed }) => [
                         styles.historyCard,
                         {
-                          backgroundColor: 'rgba(255, 248, 238, 0.45)',
+                          backgroundColor: theme.glassInput,
                           borderColor: isExpanded
                             ? theme.primary
-                            : 'rgba(255, 255, 255, 0.65)',
+                            : theme.glassBorder,
                         },
                         pressed && styles.pressed,
                       ]}
@@ -731,10 +789,22 @@ export default function PraktikanJadwalScreen() {
                                       type="small"
                                       themeColor="textSecondary"
                                     >
-                                      Waktu Presensi
+                                      {record.status === 'excused'
+                                        ? 'Status Izin'
+                                        : 'Waktu Presensi'}
                                     </ThemedText>
-                                    <ThemedText type="smallBold">
-                                      {formatDateTime(record.checkedInAt)} WIB
+                                    <ThemedText
+                                      type="smallBold"
+                                      style={{
+                                        flexShrink: 1,
+                                        maxWidth: '70%',
+                                        textAlign: 'right',
+                                      }}>
+                                      {record.status === 'excused'
+                                        ? 'Disetujui'
+                                        : record.checkedInAt
+                                          ? `${formatDateTime(record.checkedInAt)} WIB`
+                                          : 'Waktu tidak tersedia'}
                                     </ThemedText>
                                   </View>
                                   <View style={styles.historyMetaRow}>
@@ -824,8 +894,8 @@ export default function PraktikanJadwalScreen() {
                       style={[
                         styles.detailSection,
                         {
-                          backgroundColor: 'rgba(255, 248, 238, 0.38)',
-                          borderColor: 'rgba(255, 255, 255, 0.45)',
+                          backgroundColor: theme.glassCard,
+                          borderColor: theme.glassBorder,
                         },
                       ]}
                     >
@@ -883,30 +953,34 @@ export default function PraktikanJadwalScreen() {
                         {
                           backgroundColor:
                             activeModalSession?.status === "open"
-                              ? 'rgba(53, 64, 36, 0.25)'
-                              : 'rgba(255, 248, 238, 0.35)',
+                              ? '#E5EAD8'
+                              : theme.glassInput,
                           borderColor:
                             activeModalSession?.status === "open"
-                              ? 'rgba(255, 255, 255, 0.5)'
-                              : 'rgba(255, 255, 255, 0.4)',
+                              ? theme.moss
+                              : theme.glassBorder,
                         },
                       ]}
                     >
                       <ThemedText
                         type="smallBold"
                         style={{
-                          color: '#FFFFFF',
+                          color: theme.primary,
                           fontWeight: '700',
                         }}
                       >
-                        {activeModalSession?.status === "open"
+                        {isExcusedForActiveModal
+                          ? 'Izin Disetujui'
+                          : activeModalSession?.status === "open"
                           ? "Sesi Sedang Dibuka"
                           : activeModalSession?.status === "closed"
                             ? "Sesi Telah Ditutup"
-                            : "Sesi Belum Dibuka"}
+                          : "Sesi Belum Dibuka"}
                       </ThemedText>
-                      <ThemedText type="small" style={{ color: '#FFFFFF', opacity: 0.9 }}>
-                        {activeModalSession?.status === "open"
+                      <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                        {isExcusedForActiveModal
+                          ? 'Pengajuan izinmu sudah disetujui asisten. Presensi manual tidak diperlukan.'
+                          : activeModalSession?.status === "open"
                           ? "Silakan tekan tombol presensi di bawah untuk mencatat kehadiran Anda sekarang."
                           : activeModalSession?.status === "closed"
                             ? "Sesi praktikum telah selesai. Presensi sudah tidak dapat dilakukan."
@@ -915,7 +989,19 @@ export default function PraktikanJadwalScreen() {
                     </View>
 
                     {/* Tombol Presensi di Dalam Modal */}
-                    {activeModalSession?.status === "open" &&
+                    {isExcusedForActiveModal ? (
+                      <View
+                        style={[
+                          styles.modalCheckedInBanner,
+                          { backgroundColor: theme.warningSoft },
+                        ]}>
+                        <ThemedText
+                          type="smallBold"
+                          style={{ color: theme.text }}>
+                          Izin Anda disetujui. Presensi manual tidak diperlukan.
+                        </ThemedText>
+                      </View>
+                    ) : activeModalSession?.status === "open" &&
                       (isCheckedInForActiveModal ? (
                         <View
                           style={[
@@ -1013,20 +1099,15 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     gap: Spacing.two,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
   },
   headerGlassBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.half,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    backgroundColor: '#889063',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.45)',
+    borderColor: '#AAB18B',
   },
   headerTitleText: {
     fontSize: 28,
@@ -1038,18 +1119,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: 4,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#889063',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderColor: '#AAB18B',
   },
   header: {
     gap: Spacing.one,
   },
   permissionButton: {
     alignSelf: "flex-start",
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
-    borderRadius: Spacing.two,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
   backButton: {
     alignSelf: "flex-start",
     paddingHorizontal: Spacing.three,
@@ -1071,11 +1157,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1.5,
     gap: Spacing.half,
-    shadowColor: "#4C3D19",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 14,
-    elevation: 3,
   },
   statValue: {
     fontSize: 28,
@@ -1104,11 +1185,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1.5,
     gap: Spacing.three,
-    shadowColor: "#4C3D19",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.09,
-    shadowRadius: 14,
-    elevation: 2,
   },
   cardHighlight: {
     borderLeftWidth: 5,
@@ -1134,10 +1210,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.two,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: '#F7F1E7',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
+    borderColor: '#C8B995',
   },
   infoItem: {
     flex: 1,
@@ -1146,7 +1222,7 @@ const styles = StyleSheet.create({
   infoDivider: {
     width: 1,
     height: 30,
-    backgroundColor: "rgba(136, 144, 99, 0.3)",
+    backgroundColor: "#D8D0BC",
     marginHorizontal: Spacing.two,
   },
   assistantBadge: {
@@ -1173,12 +1249,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-    shadowColor: '#354024',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
+    borderColor: '#889063',
   },
   checkedInBadge: {
     paddingHorizontal: Spacing.three,
@@ -1190,11 +1261,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1.5,
     gap: Spacing.two,
-    shadowColor: "#4C3D19",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 2,
   },
   historyHeader: {
     flexDirection: "row",
@@ -1226,7 +1292,8 @@ const styles = StyleSheet.create({
   historyMetaRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
+    gap: Spacing.two,
   },
   empty: {
     padding: Spacing.five,
@@ -1249,7 +1316,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.75)',
+    borderColor: '#C8B995',
     paddingHorizontal: Spacing.four,
     paddingTop: Spacing.three,
     gap: Spacing.three,
@@ -1301,7 +1368,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderColor: '#C8B995',
   },
   modalCheckedInBanner: {
     paddingVertical: Spacing.three,

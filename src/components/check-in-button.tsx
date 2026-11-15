@@ -15,6 +15,7 @@ const FAILURE_MESSAGES: Record<CheckInFailureReason, string> = {
   'unknown-session': 'Sesi tidak ditemukan.',
   'not-open': 'Sesi belum dibuka asisten.',
   'already-checked-in': 'Kamu sudah melakukan presensi pada sesi ini.',
+  excused: 'Izin kamu sudah disetujui. Kamu tidak perlu presensi manual.',
 };
 
 type CheckInButtonProps = {
