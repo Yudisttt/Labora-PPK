@@ -10,6 +10,7 @@ import * as SplashScreen from "expo-splash-screen";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { AuthProvider } from "@/state/auth-context";
 import { AppProvider } from "@/state/app-context";
 
 SplashScreen.preventAutoHideAsync();
@@ -29,14 +30,16 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-      <AppProvider>
-        <AnimatedSplashOverlay />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="praktikan" />
-          <Stack.Screen name="asisten" />
-        </Stack>
-      </AppProvider>
+      <AuthProvider>
+        <AppProvider>
+          <AnimatedSplashOverlay />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="praktikan" />
+            <Stack.Screen name="asisten" />
+          </Stack>
+        </AppProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
