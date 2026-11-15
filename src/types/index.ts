@@ -38,6 +38,37 @@ export type AttendanceRecord = {
   checkedInAt: string;
 };
 
+export type PermissionRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export type ReasonAssessmentLabel = 'negatif' | 'netral' | 'positif';
+
+export type PermissionAiPrediction = {
+  label: ReasonAssessmentLabel | null;
+  status:
+    | 'predicted'
+    | 'unknown_vocabulary'
+    | 'empty_input'
+    | 'error';
+  experimental: boolean;
+  scoreType: 'none' | 'decision_margin' | 'log_score';
+  modelVersion: 'edom-sentiment-v1' | 'permission-reason-v1';
+};
+
+export type PermissionDecision = 'approved' | 'rejected';
+
+export type PermissionRequest = {
+  id: string;
+  sessionId: string;
+  userId: string;
+  userName: string;
+  reason: string;
+  aiPrediction: PermissionAiPrediction | null;
+  status: PermissionRequestStatus;
+  submittedAt: string | null;
+  decisionBy: string | null;
+  decisionAt: string | null;
+};
+
 export type CheckInFailureReason =
   | 'unknown-session'
   | 'not-open'
