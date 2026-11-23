@@ -181,6 +181,11 @@ export default function PraktikanJadwalScreen() {
         "Akses Ditolak",
         "Kamu tidak memiliki akses untuk melakukan presensi.",
       );
+    }  else if (result.reason === "outside-window") {
+      showMessage(
+        "Waktu Habis",
+        "Waktu praktikum sudah berakhir. Presensi tidak dapat dilakukan.",
+      );
     } else if (result.reason === "invalid-role") {
       showMessage(
         "Akses Ditolak",
@@ -200,22 +205,6 @@ export default function PraktikanJadwalScreen() {
         >
           {/* Header Switcher Role & Akun */}
           <RoleSwitcher />
-
-          {/* Tombol kembali */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Kembali ke pemilihan peran"
-            onPress={() => router.replace("/")}
-            style={({ pressed }) => [
-              styles.backButton,
-              { borderColor: theme.border },
-              pressed && styles.pressed,
-            ]}
-          >
-            <ThemedText type="smallBold" style={{ color: theme.primary }}>
-              ← Kembali
-            </ThemedText>
-          </Pressable>
 
           {/* Feedback banner untuk web/mobile */}
           {feedbackMessage ? (
@@ -480,7 +469,7 @@ export default function PraktikanJadwalScreen() {
             </Pressable>
           </View>
 
-          {/* TAB CONTENT: JADWAL & DETAIL SESI (SRS-01 & SRS-02) */}
+          {/* TAB CONTENT: JADWAL & DETAIL SESI */}
           {activeTab === "jadwal" && (
             <View style={styles.list}>
               {filteredSchedules.length === 0 ? (
@@ -592,7 +581,7 @@ export default function PraktikanJadwalScreen() {
                           </ThemedText>
                         </Pressable>
 
-                        {/* Tombol Presensi Realtime (SRS-02) */}
+                        {/* Tombol Presensi Realtime */}
                         {isExcusedForSchedule ? (
                           <View
                             style={[
@@ -690,7 +679,7 @@ export default function PraktikanJadwalScreen() {
             </View>
           )}
 
-          {/* TAB CONTENT: CATATAN & RIWAYAT KEHADIRAN (SRS-03) */}
+          {/* TAB CONTENT: CATATAN & RIWAYAT KEHADIRAN */}
           {activeTab === "riwayat" && (
             <View style={styles.list}>
               {schedules.length === 0 ? (
@@ -831,7 +820,7 @@ export default function PraktikanJadwalScreen() {
             </View>
           )}
 
-          {/* MODAL DETAIL SESI PRAKTIKUM (SRS-01) */}
+          {/* MODAL DETAIL SESI PRAKTIKUM */}
           <Modal
             visible={!!selectedSchedule}
             transparent
@@ -889,7 +878,7 @@ export default function PraktikanJadwalScreen() {
                       />
                     </View>
 
-                    {/* Section Spesifikasi - Glass Cream */}
+                    {/* Section Spesifikasi */}
                     <View
                       style={[
                         styles.detailSection,
@@ -946,7 +935,7 @@ export default function PraktikanJadwalScreen() {
                       </View>
                     </View>
 
-                    {/* Status Sesi & Keterangan - Glass Cream */}
+                    {/* Status Sesi & Keterangan */}
                     <View
                       style={[
                         styles.detailStatusNotice,
@@ -1043,22 +1032,6 @@ export default function PraktikanJadwalScreen() {
                         </Pressable>
                       ))}
 
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => setSelectedSchedule(null)}
-                      style={({ pressed }) => [
-                        styles.modalCloseButton,
-                        { backgroundColor: theme.primary },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <ThemedText
-                        type="smallBold"
-                        style={{ color: theme.primaryText }}
-                      >
-                        Tutup
-                      </ThemedText>
-                    </Pressable>
                   </ScrollView>
                 )}
               </ThemedView>
@@ -1135,13 +1108,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.two,
     borderRadius: 999,
-    borderWidth: 1,
-  },
-  backButton: {
-    alignSelf: "flex-start",
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: 8,
     borderWidth: 1,
   },
   statsRow: {
@@ -1380,12 +1346,6 @@ const styles = StyleSheet.create({
   },
   excusedStatusBanner: {
     marginTop: Spacing.three,
-  },
-  modalCloseButton: {
-    paddingVertical: Spacing.three,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
   },
   pressed: {
     opacity: 0.75,
