@@ -65,6 +65,11 @@ function isValidDate(value: string) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function todayKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 const TABS: { id: DataTab; label: string }[] = [
   { id: 'classes', label: 'Kelas & Jadwal' },
   { id: 'participants', label: 'Peserta' },
@@ -310,6 +315,11 @@ export default function ManagePracticumDataScreen() {
       return;
     }
 
+    if (initialScheduleDate < todayKey()) {
+      setError('Tanggal praktikum tidak boleh di masa lalu.');
+      return;
+    }
+
     const selectedSlot = PRACTICUM_TIME_SLOTS.find(
       (slot) =>
         slot.startTime === initialStartTime &&
@@ -372,6 +382,18 @@ export default function ManagePracticumDataScreen() {
 
     if (!isValidDate(scheduleDate)) {
       setError('Tanggal harus menggunakan format YYYY-MM-DD yang valid.');
+      return;
+    }
+
+    const originalSchedule = allSchedules.find(
+      (item) => item.id === editingScheduleId,
+    );
+    const dateChanged = originalSchedule
+      ? originalSchedule.date !== scheduleDate
+      : true;
+
+    if (dateChanged && scheduleDate < todayKey()) {
+      setError('Tanggal praktikum tidak boleh di masa lalu.');
       return;
     }
 
