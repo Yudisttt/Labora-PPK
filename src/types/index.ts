@@ -75,10 +75,12 @@ export type PermissionRequest = {
 export type CheckInFailureReason =
   | 'unknown-session'
   | 'not-open'
+  | 'outside-window'
   | 'excused'
   | 'already-checked-in'
   | 'unauthorized'
   | 'invalid-role';
+
 
 export type CheckInResult =
   | { ok: true; record: AttendanceRecord }
