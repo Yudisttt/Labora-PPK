@@ -22,18 +22,26 @@ import { ThemedView } from '@/components/themed-view';
 import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/state/app-context';
-import type { Schedule, Session, SessionStatus, User } from '@/types';
+import type {
+  AttendanceRecord,
+  Schedule,
+  Session,
+  SessionStatus,
+  User,
+} from '@/types';
 import {
   formatDate,
   formatDateTimeWithSeconds,
   formatTimeWithSeconds,
   initials,
 } from '@/utils/format';
+import {
+  getPracticumWindowState,
+  getSessionButtonLabel,
+} from '@/utils/practicum-window';
 
 type TabMode = 'jadwal' | 'rekap';
 type StatusFilter = 'all' | SessionStatus;
-type ModalSubTab = 'detail' | 'rekap';
-type AttendanceFilter = 'all' | 'attended' | 'excused' | 'absent';
 
 type ConfirmActionState = {
   type: 'open' | 'close' | 'reopen';
@@ -48,12 +56,12 @@ export default function AsistenJadwalScreen() {
     currentUser,
     users,
     schedules,
+    attendance,
     openSession,
     closeSession,
     attendanceError,
     getUser,
     getSessionsForSchedule,
-    getAttendanceForSession,
   } = useApp();
 
   // Navigation & Filter States
@@ -62,14 +70,10 @@ export default function AsistenJadwalScreen() {
   const [onlyMySchedules, setOnlyMySchedules] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modal Detail & Rekap States
+  // Modal Detail States
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(
     null,
   );
-  const [modalSubTab, setModalSubTab] = useState<ModalSubTab>('detail');
-  const [modalAttendanceFilter, setModalAttendanceFilter] =
-    useState<AttendanceFilter>('all');
-  const [modalSearchPraktikan, setModalSearchPraktikan] = useState('');
 
   // Global Rekap Tab States
   const [rekapSelectedScheduleId, setRekapSelectedScheduleId] =
@@ -164,8 +168,10 @@ export default function AsistenJadwalScreen() {
     statusFilter,
   ]);
 
-  // Session action handlers (SRS-05)
+  // Session action handlers
   function handleOpenSession(session: Session, schedule: Schedule) {
+    // Tutup modal detail agar hanya satu modal yang tampil
+    setSelectedSchedule(null);
     setConfirmAction({
       type: session.status === 'closed' ? 'reopen' : 'open',
       session,
@@ -174,6 +180,8 @@ export default function AsistenJadwalScreen() {
   }
 
   function handleCloseSession(session: Session, schedule: Schedule) {
+    // Tutup modal detail 
+    setSelectedSchedule(null);
     setConfirmAction({
       type: 'close',
       session,
@@ -219,16 +227,39 @@ export default function AsistenJadwalScreen() {
   }
 
 
-  // Build attendance data for a given session (SRS-06)
+  // Kelompokkan presensi per sesi 
+  const attendanceBySessionId = useMemo(() => {
+    const grouped = new Map<string, AttendanceRecord[]>();
+
+    attendance.forEach((record) => {
+      const existing = grouped.get(record.sessionId);
+
+      if (existing) {
+        existing.push(record);
+      } else {
+        grouped.set(record.sessionId, [record]);
+      }
+    });
+
+    return grouped;
+  }, [attendance]);
+
+  // Build attendance data for a given session
   function getSessionAttendanceData(session: Session) {
-    const sessionRecords = getAttendanceForSession(session.id);
+    const sessionRecords = attendanceBySessionId.get(session.id) ?? [];
+
+    const recordByUserId = new Map<string, AttendanceRecord>();
+
+    sessionRecords.forEach((record) => {
+      recordByUserId.set(record.userId, record);
+    });
 
     const attendedUsers: { user: User; checkedInAt: string }[] = [];
     const excusedUsers: { user: User; excusedAt: string | null }[] = [];
     const absentUsers: User[] = [];
 
     praktikanUsers.forEach((praktikan) => {
-      const record = sessionRecords.find((r) => r.userId === praktikan.id);
+      const record = recordByUserId.get(praktikan.id);
       if (record?.status === 'present' && record.checkedInAt) {
         attendedUsers.push({
           user: praktikan,
@@ -265,7 +296,7 @@ export default function AsistenJadwalScreen() {
     };
   }
 
-  // Generate structured report text for export/copy (SRS-06)
+  // Generate structured report text for export/copy
   function generateReportText(schedule: Schedule, session: Session) {
     const {
       attendedUsers,
@@ -378,21 +409,6 @@ export default function AsistenJadwalScreen() {
           keyboardShouldPersistTaps="handled">
           {/* Role Switcher */}
           <RoleSwitcher />
-
-          {/* Tombol kembali */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Kembali ke pemilihan peran"
-            onPress={() => router.replace('/')}
-            style={({ pressed }) => [
-              styles.backButton,
-              { borderColor: theme.border },
-              pressed && styles.pressed,
-            ]}>
-            <ThemedText type="smallBold" style={{ color: theme.primary }}>
-              ← Kembali
-            </ThemedText>
-          </Pressable>
 
           {/* Feedback Toast */}
           {feedbackToast ? (
@@ -931,7 +947,6 @@ export default function AsistenJadwalScreen() {
                   {filteredSchedules.map((schedule) => {
                     const session = getSessionsForSchedule(schedule.id)[0];
                     const assistant = getUser(schedule.assistantId);
-                    const isMySchedule = currentUser?.id === schedule.assistantId;
 
                     const attendanceData = session
                       ? getSessionAttendanceData(session)
@@ -946,6 +961,13 @@ export default function AsistenJadwalScreen() {
                     const isOpen = session?.status === 'open';
                     const isScheduled = session?.status === 'scheduled';
                     const isClosed = session?.status === 'closed';
+                    const sessionWindow = getPracticumWindowState(schedule);
+                    const canOpenSession = sessionWindow.phase === 'open';
+                    const openSessionLabel = getSessionButtonLabel(
+                      sessionWindow.phase,
+                      schedule.startTime,
+                      'Buka Sesi Presensi',
+                    );
 
                     return (
                       <ThemedView
@@ -969,22 +991,6 @@ export default function AsistenJadwalScreen() {
                                 style={styles.praktikumTitleText}>
                                 {schedule.praktikum}
                               </ThemedText>
-                              {isMySchedule && (
-                                <View
-                                  style={[
-                                    styles.pjBadge,
-                                    { backgroundColor: theme.moss },
-                                  ]}>
-                                  <ThemedText
-                                    type="smallBold"
-                                    style={{
-                                      color: theme.primaryText,
-                                      fontSize: 10,
-                                    }}>
-                                    PJ SAYA
-                                  </ThemedText>
-                                </View>
-                              )}
                             </View>
                             <ThemedText
                               type="small"
@@ -1103,7 +1109,7 @@ export default function AsistenJadwalScreen() {
                           </ThemedText>
                         </View>
 
-                        {/* Live Attendance Progress (SRS-06) */}
+                        {/* Live Attendance Progress */}
                         <View style={styles.attendanceProgressSection}>
                           <View style={styles.attendanceProgressMeta}>
                             <ThemedText
@@ -1143,14 +1149,13 @@ export default function AsistenJadwalScreen() {
                           </View>
                         </View>
 
-                        {/* Action Buttons Row (SRS-04, SRS-05, SRS-06) */}
+                        {/* Action Buttons Row */}
                         <View style={styles.cardActionsRow}>
-                          {/* Button: Lihat Detail Sesi & Rekap (SRS-04 & SRS-06) */}
+                          {/* Button: Lihat Detail Sesi */}
                           <Pressable
                             accessibilityRole="button"
                             onPress={() => {
                               setSelectedSchedule(schedule);
-                              setModalSubTab('detail');
                             }}
                             style={({ pressed }) => [
                               styles.detailActionButton,
@@ -1163,7 +1168,7 @@ export default function AsistenJadwalScreen() {
                             <ThemedText
                               type="smallBold"
                               style={{ color: theme.primary }}>
-                              Detail & Rekap
+                              Detail
                             </ThemedText>
                           </Pressable>
                           {!session && (
@@ -1183,24 +1188,40 @@ export default function AsistenJadwalScreen() {
                             </Pressable>
                           )}
 
-                          {/* Quick Session Toggle Button (SRS-05) */}
+                          {/* Quick Session Toggle Button*/}
                           {session && (
                             <>
                               {isScheduled && (
                                 <Pressable
                                   accessibilityRole="button"
+                                  accessibilityState={{
+                                    disabled: !canOpenSession,
+                                  }}
+                                  disabled={!canOpenSession}
                                   onPress={() =>
                                     handleOpenSession(session, schedule)
                                   }
                                   style={({ pressed }) => [
                                     styles.sessionActionButton,
-                                    { backgroundColor: theme.primary },
-                                    pressed && styles.pressed,
+                                    {
+                                      backgroundColor: canOpenSession
+                                        ? theme.primary
+                                        : theme.backgroundSelected,
+                                      borderColor: canOpenSession
+                                        ? theme.primary
+                                        : theme.border,
+                                    },
+                                    !canOpenSession && styles.disabledButton,
+                                    pressed && canOpenSession && styles.pressed,
                                   ]}>
                                   <ThemedText
                                     type="smallBold"
-                                    style={{ color: theme.primaryText }}>
-                                    Buka Sesi Presensi
+                                    style={{
+                                      color: canOpenSession
+                                        ? theme.primaryText
+                                        : theme.textSecondary,
+                                    }}>
+                                    {openSessionLabel}
                                   </ThemedText>
                                 </Pressable>
                               )}
@@ -1213,7 +1234,10 @@ export default function AsistenJadwalScreen() {
                                   }
                                   style={({ pressed }) => [
                                     styles.sessionActionButton,
-                                    { backgroundColor: theme.danger },
+                                    {
+                                      backgroundColor: theme.danger,
+                                      borderColor: theme.danger,
+                                    },
                                     pressed && styles.pressed,
                                   ]}>
                                   <ThemedText
@@ -1227,22 +1251,39 @@ export default function AsistenJadwalScreen() {
                               {isClosed && (
                                 <Pressable
                                   accessibilityRole="button"
+                                  accessibilityState={{
+                                    disabled: !canOpenSession,
+                                  }}
+                                  disabled={!canOpenSession}
                                   onPress={() =>
                                     handleOpenSession(session, schedule)
                                   }
                                   style={({ pressed }) => [
                                     styles.sessionActionButton,
                                     {
-                                      backgroundColor: theme.primary,
-                                      borderColor: theme.primary,
+                                      backgroundColor: canOpenSession
+                                        ? theme.primary
+                                        : theme.backgroundSelected,
+                                      borderColor: canOpenSession
+                                        ? theme.primary
+                                        : theme.border,
                                       borderWidth: 1,
                                     },
-                                    pressed && styles.pressed,
+                                    !canOpenSession && styles.disabledButton,
+                                    pressed && canOpenSession && styles.pressed,
                                   ]}>
                                   <ThemedText
                                     type="smallBold"
-                                    style={{ color: theme.primaryText }}>
-                                    Buka Kembali
+                                    style={{
+                                      color: canOpenSession
+                                        ? theme.primaryText
+                                        : theme.textSecondary,
+                                    }}>
+                                    {getSessionButtonLabel(
+                                      sessionWindow.phase,
+                                      schedule.startTime,
+                                      'Buka Kembali',
+                                    )}
                                   </ThemedText>
                                 </Pressable>
                               )}
@@ -1259,7 +1300,7 @@ export default function AsistenJadwalScreen() {
           )}
 
           {/* ============================================================== */}
-          {/* TAB 2: REKAP PRESENSI KESELURUHAN (SRS-06)                      */}
+          {/* REKAP PRESENSI KESELURUHAN */}
           {/* ============================================================== */}
           {activeTab === 'rekap' && (
             <View style={styles.tabContent}>
@@ -1496,7 +1537,7 @@ export default function AsistenJadwalScreen() {
                           <ThemedText
                             type="smallBold"
                             style={styles.rekapPraktikanSectionTitle}>
-                            Daftar Mahasiswa & Waktu Kehadiran (SRS-06):
+                            Daftar Mahasiswa & Waktu Kehadiran:
                           </ThemedText>
 
                           {filteredAttended.length === 0 &&
@@ -1509,7 +1550,11 @@ export default function AsistenJadwalScreen() {
                               Tidak ada praktikan yang cocok dengan pencarian.
                             </ThemedText>
                           ) : (
-                            <View style={styles.praktikanRowsList}>
+                            <ScrollView
+                              style={styles.praktikanRowsList}
+                              contentContainerStyle={styles.praktikanRowsContent}
+                              nestedScrollEnabled
+                              showsVerticalScrollIndicator>
                               {/* Hadir List */}
                               {filteredAttended.map((item) => (
                                 <View
@@ -1649,7 +1694,7 @@ export default function AsistenJadwalScreen() {
                                   </View>
                                 </View>
                               ))}
-                            </View>
+                            </ScrollView>
                           )}
                         </View>
                       </ThemedView>
@@ -1660,7 +1705,7 @@ export default function AsistenJadwalScreen() {
           )}
 
           {/* ============================================================== */}
-          {/* MODAL DETAIL SESI & REKAP KEHADIRAN LENGKAP (SRS-04, 05, 06)   */}
+          {/* MODAL DETAIL SESI (SRS-04, 05)   */}
           {/* ============================================================== */}
           <Modal
             visible={!!selectedSchedule}
@@ -1715,62 +1760,8 @@ export default function AsistenJadwalScreen() {
                       <SessionStatusBadge status={activeModalSession.status} />
                     </View>
 
-                    {/* Modal Sub-Tabs Navigation */}
-                    <View style={styles.modalSubTabContainer}>
-                      <Pressable
-                        accessibilityRole="tab"
-                        onPress={() => setModalSubTab('detail')}
-                        style={[
-                          styles.modalSubTabButton,
-                          {
-                            backgroundColor:
-                              modalSubTab === 'detail'
-                                ? theme.primary
-                                : theme.background,
-                            borderColor: theme.border,
-                          },
-                        ]}>
-                        <ThemedText
-                          type="smallBold"
-                          style={{
-                            color:
-                              modalSubTab === 'detail'
-                                ? theme.primaryText
-                                : theme.text,
-                          }}>
-                          Detail & Kontrol Sesi
-                        </ThemedText>
-                      </Pressable>
-
-                      <Pressable
-                        accessibilityRole="tab"
-                        onPress={() => setModalSubTab('rekap')}
-                        style={[
-                          styles.modalSubTabButton,
-                          {
-                            backgroundColor:
-                              modalSubTab === 'rekap'
-                                ? theme.primary
-                                : theme.background,
-                            borderColor: theme.border,
-                          },
-                        ]}>
-                        <ThemedText
-                          type="smallBold"
-                          style={{
-                            color:
-                              modalSubTab === 'rekap'
-                                ? theme.primaryText
-                                : theme.text,
-                          }}>
-                          Rekap Presensi Sesi
-                        </ThemedText>
-                      </Pressable>
-                    </View>
-
-                    {/* SUBTAB 1: DETAIL SESI & KONTROL (SRS-04 & SRS-05) */}
-                    {modalSubTab === 'detail' && (
-                      <View style={styles.modalTabBody}>
+                    {/* DETAIL SESI & KONTROL (SRS-04 & SRS-05) */}
+                    <View style={styles.modalTabBody}>
                         {/* Section Spesifikasi Jadwal Praktikum (SRS-04) */}
                         <View
                           style={[
@@ -1855,70 +1846,6 @@ export default function AsistenJadwalScreen() {
                           </View>
                         </View>
 
-                        {/* Section Status & Waktu Sesi (SRS-04 & SRS-05) */}
-                        <View
-                          style={[
-                            styles.modalSectionCard,
-                            {
-                              backgroundColor: theme.background,
-                              borderColor: theme.border,
-                            },
-                          ]}>
-                          <ThemedText
-                            type="smallBold"
-                            style={styles.modalSectionHeading}>
-                            Status Sesi & Waktu Operasional
-                          </ThemedText>
-
-                          <View style={styles.modalDetailRow}>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary">
-                              ID Sesi
-                            </ThemedText>
-                            <ThemedText type="smallBold">
-                              {activeModalSession.id}
-                            </ThemedText>
-                          </View>
-
-                          <View style={styles.modalDetailRow}>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary">
-                              Status Presensi
-                            </ThemedText>
-                            <SessionStatusBadge
-                              status={activeModalSession.status}
-                            />
-                          </View>
-
-                          <View style={styles.modalDetailRow}>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary">
-                              Waktu Sesi Dibuka
-                            </ThemedText>
-                            <ThemedText type="smallBold">
-                              {activeModalSession.openedAt
-                                ? `${formatDateTimeWithSeconds(activeModalSession.openedAt)} WIB`
-                                : '-'}
-                            </ThemedText>
-                          </View>
-
-                          <View style={styles.modalDetailRow}>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary">
-                              Waktu Sesi Ditutup
-                            </ThemedText>
-                            <ThemedText type="smallBold">
-                              {activeModalSession.closedAt
-                                ? `${formatDateTimeWithSeconds(activeModalSession.closedAt)} WIB`
-                                : '-'}
-                            </ThemedText>
-                          </View>
-                        </View>
-
                         {/* Kontrol Sesi Presensi: Buka & Tutup (SRS-05) */}
                         <View
                           style={[
@@ -1966,30 +1893,52 @@ export default function AsistenJadwalScreen() {
                                 : 'Praktikan kelas ini belum dapat melakukan presensi. Buka sesi sekarang agar praktikan dapat melakukan check-in.'}
                           </ThemedText>
 
-                          {activeModalSession.status === 'scheduled' && (
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={() =>
-                                handleOpenSession(
-                                  activeModalSession,
-                                  selectedSchedule,
-                                )
-                              }
-                              style={({ pressed }) => [
-                                styles.primaryActionButton,
-                                { backgroundColor: theme.primary },
-                                pressed && styles.pressed,
-                              ]}>
-                              <ThemedText
-                                type="smallBold"
-                                style={{
-                                  color: theme.primaryText,
-                                  fontSize: 15,
-                                }}>
-                                Buka Sesi Presensi Sekarang
-                              </ThemedText>
-                            </Pressable>
-                          )}
+                          {activeModalSession.status === 'scheduled' && (() => {
+                            const modalWindow =
+                              getPracticumWindowState(selectedSchedule);
+                            const canOpen = modalWindow.phase === 'open';
+
+                            return (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityState={{ disabled: !canOpen }}
+                                disabled={!canOpen}
+                                onPress={() =>
+                                  handleOpenSession(
+                                    activeModalSession,
+                                    selectedSchedule,
+                                  )
+                                }
+                                style={({ pressed }) => [
+                                  styles.primaryActionButton,
+                                  {
+                                    backgroundColor: canOpen
+                                      ? theme.primary
+                                      : theme.backgroundSelected,
+                                    borderColor: canOpen
+                                      ? theme.primary
+                                      : theme.border,
+                                  },
+                                  !canOpen && styles.disabledButton,
+                                  pressed && canOpen && styles.pressed,
+                                ]}>
+                                <ThemedText
+                                  type="smallBold"
+                                  style={{
+                                    color: canOpen
+                                      ? theme.primaryText
+                                      : theme.textSecondary,
+                                    fontSize: 15,
+                                  }}>
+                                  {getSessionButtonLabel(
+                                    modalWindow.phase,
+                                    selectedSchedule.startTime,
+                                    'Buka Sesi Presensi Sekarang',
+                                  )}
+                                </ThemedText>
+                              </Pressable>
+                            );
+                          })()}
 
                           {activeModalSession.status === 'open' && (
                             <Pressable
@@ -2002,7 +1951,10 @@ export default function AsistenJadwalScreen() {
                               }
                               style={({ pressed }) => [
                                 styles.primaryActionButton,
-                                { backgroundColor: theme.danger },
+                                {
+                                  backgroundColor: theme.danger,
+                                  borderColor: theme.danger,
+                                },
                                 pressed && styles.pressed,
                               ]}>
                               <ThemedText
@@ -2016,432 +1968,56 @@ export default function AsistenJadwalScreen() {
                             </Pressable>
                           )}
 
-                          {activeModalSession.status === 'closed' && (
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={() =>
-                                handleOpenSession(
-                                  activeModalSession,
-                                  selectedSchedule,
-                                )
-                              }
-                              style={({ pressed }) => [
-                                styles.primaryActionButton,
-                                {
-                                  backgroundColor: theme.primary,
-                                },
-                                pressed && styles.pressed,
-                              ]}>
-                              <ThemedText
-                                type="smallBold"
-                                style={{
-                                  color: theme.primaryText,
-                                  fontSize: 15,
-                                }}>
-                                Buka Kembali Sesi Presensi
-                              </ThemedText>
-                            </Pressable>
-                          )}
+                          {activeModalSession.status === 'closed' && (() => {
+                            const modalWindow =
+                              getPracticumWindowState(selectedSchedule);
+                            const canReopen = modalWindow.phase === 'open';
+
+                            return (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityState={{ disabled: !canReopen }}
+                                disabled={!canReopen}
+                                onPress={() =>
+                                  handleOpenSession(
+                                    activeModalSession,
+                                    selectedSchedule,
+                                  )
+                                }
+                                style={({ pressed }) => [
+                                  styles.primaryActionButton,
+                                  {
+                                    backgroundColor: canReopen
+                                      ? theme.primary
+                                      : theme.backgroundSelected,
+                                    borderColor: canReopen
+                                      ? theme.primary
+                                      : theme.border,
+                                  },
+                                  !canReopen && styles.disabledButton,
+                                  pressed && canReopen && styles.pressed,
+                                ]}>
+                                <ThemedText
+                                  type="smallBold"
+                                  style={{
+                                    color: canReopen
+                                      ? theme.primaryText
+                                      : theme.textSecondary,
+                                    fontSize: 15,
+                                  }}>
+                                  {getSessionButtonLabel(
+                                    modalWindow.phase,
+                                    selectedSchedule.startTime,
+                                    'Buka Kembali Sesi Presensi',
+                                  )}
+                                </ThemedText>
+                              </Pressable>
+                            );
+                          })()}
                         </View>
                       </View>
-                    )}
-
-                    {/* SUBTAB 2: REKAP PRESENSI SESI (SRS-06) */}
-                    {modalSubTab === 'rekap' && (
-                      <View style={styles.modalTabBody}>
-                        {(() => {
-                          const {
-                            attendedUsers,
-                            excusedUsers,
-                            absentUsers,
-                            attendedCount,
-                            excusedCount,
-                            totalStudents,
-                            percentage,
-                          } = getSessionAttendanceData(activeModalSession);
-
-                          const filteredAttended = attendedUsers.filter(
-                            (item) => {
-                              if (!modalSearchPraktikan.trim()) return true;
-                              const q = modalSearchPraktikan.toLowerCase();
-                              return (
-                                item.user.name.toLowerCase().includes(q) ||
-                                item.user.identityNumber
-                                  .toLowerCase()
-                                  .includes(q)
-                              );
-                            },
-                          );
-
-                          const filteredAbsent = absentUsers.filter((user) => {
-                            if (!modalSearchPraktikan.trim()) return true;
-                            const q = modalSearchPraktikan.toLowerCase();
-                            return (
-                              user.name.toLowerCase().includes(q) ||
-                              user.identityNumber.toLowerCase().includes(q)
-                            );
-                          });
-                          const filteredExcused = excusedUsers.filter((item) => {
-                            if (!modalSearchPraktikan.trim()) return true;
-                            const q = modalSearchPraktikan.toLowerCase();
-                            return (
-                              item.user.name.toLowerCase().includes(q) ||
-                              item.user.identityNumber.toLowerCase().includes(q)
-                            );
-                          });
-
-                          return (
-                            <>
-                              {/* Rekap Metrics Card */}
-                              <View
-                                style={[
-                                  styles.modalSectionCard,
-                                  {
-                                    backgroundColor: theme.background,
-                                    borderColor: theme.border,
-                                  },
-                                ]}>
-                                <View style={styles.modalRekapMetricHeader}>
-                                  <View style={{ flex: 1 }}>
-                                    <ThemedText type="smallBold">
-                                      Tingkat Kehadiran Kelas
-                                    </ThemedText>
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary">
-                                      {attendedCount} hadir · {excusedCount} izin ·{' '}
-                                      {Math.max(0, totalStudents - attendedCount - excusedCount)} belum hadir ({percentage}% hadir)
-                                    </ThemedText>
-                                  </View>
-                                  <Pressable
-                                    accessibilityRole="button"
-                                    onPress={() =>
-                                      handleCopyReport(
-                                        selectedSchedule,
-                                        activeModalSession,
-                                      )
-                                    }
-                                    style={({ pressed }) => [
-                                      styles.copyMiniButton,
-                                      { backgroundColor: theme.primary },
-                                      pressed && styles.pressed,
-                                    ]}>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={{
-                                        color: theme.primaryText,
-                                        fontSize: 11,
-                                      }}>
-                                      Salin Rekap
-                                    </ThemedText>
-                                  </Pressable>
-                                </View>
-
-                                <View
-                                  style={[
-                                    styles.progressBarTrack,
-                                    {
-                                      backgroundColor: theme.backgroundElement,
-                                      borderColor: theme.border,
-                                    },
-                                  ]}>
-                                  <View
-                                    style={[
-                                      styles.progressBarFill,
-                                      {
-                                        width: `${percentage}%`,
-                                        backgroundColor: theme.primary,
-                                      },
-                                    ]}
-                                  />
-                                </View>
-                              </View>
-
-                              {/* Search & Status Filter Inside Modal */}
-                              <View style={styles.modalSearchSection}>
-                                <View
-                                  style={[
-                                    styles.searchBox,
-                                    {
-                                      backgroundColor: theme.background,
-                                      borderColor: theme.border,
-                                    },
-                                  ]}>
-                                  <TextInput
-                                    value={modalSearchPraktikan}
-                                    onChangeText={setModalSearchPraktikan}
-                                    placeholder="Cari nama atau NIM mahasiswa..."
-                                    placeholderTextColor="#7F735B"
-                                    style={[
-                                      styles.searchInput,
-                                      { color: theme.text },
-                                    ]}
-                                  />
-                                </View>
-
-                                <View style={styles.filterChipsContainer}>
-                                  <Pressable
-                                    onPress={() =>
-                                      setModalAttendanceFilter('all')
-                                    }
-                                    style={[
-                                      styles.chip,
-                                      {
-                                        backgroundColor:
-                                          modalAttendanceFilter === 'all'
-                                            ? theme.primary
-                                            : theme.background,
-                                        borderColor: theme.border,
-                                      },
-                                    ]}>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={{
-                                        color:
-                                          modalAttendanceFilter === 'all'
-                                            ? theme.primaryText
-                                            : theme.text,
-                                      }}>
-                                      Semua ({totalStudents})
-                                    </ThemedText>
-                                  </Pressable>
-
-                                  <Pressable
-                                    onPress={() =>
-                                      setModalAttendanceFilter('attended')
-                                    }
-                                    style={[
-                                      styles.chip,
-                                      {
-                                        backgroundColor:
-                                          modalAttendanceFilter === 'attended'
-                                            ? theme.primary
-                                            : theme.background,
-                                        borderColor: theme.border,
-                                      },
-                                    ]}>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={{
-                                        color:
-                                          modalAttendanceFilter === 'attended'
-                                            ? theme.primaryText
-                                            : theme.text,
-                                      }}>
-                                      Hadir ({attendedCount})
-                                    </ThemedText>
-                                  </Pressable>
-
-                                  <Pressable
-                                    onPress={() => setModalAttendanceFilter('excused')}
-                                    style={[styles.chip, { backgroundColor: modalAttendanceFilter === 'excused' ? theme.primary : theme.background, borderColor: theme.border }]}>
-                                    <ThemedText type="smallBold" style={{ color: modalAttendanceFilter === 'excused' ? theme.primaryText : theme.text }}>
-                                      Izin ({excusedCount})
-                                    </ThemedText>
-                                  </Pressable>
-
-                                  <Pressable
-                                    onPress={() =>
-                                      setModalAttendanceFilter('absent')
-                                    }
-                                    style={[
-                                      styles.chip,
-                                      {
-                                        backgroundColor:
-                                          modalAttendanceFilter === 'absent'
-                                            ? theme.primary
-                                            : theme.background,
-                                        borderColor: theme.border,
-                                      },
-                                    ]}>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={{
-                                        color:
-                                          modalAttendanceFilter === 'absent'
-                                            ? theme.primaryText
-                                            : theme.text,
-                                      }}>
-                                      Belum Hadir ({absentUsers.length})
-                                    </ThemedText>
-                                  </Pressable>
-                                </View>
-                              </View>
-
-                              {/* Praktikan List in Modal */}
-                              <View style={styles.modalPraktikanList}>
-                                {(modalAttendanceFilter === 'all' ||
-                                  modalAttendanceFilter === 'attended') &&
-                                  filteredAttended.map((item) => (
-                                    <View
-                                      key={item.user.id}
-                                      style={[
-                                        styles.praktikanRow,
-                                        {
-                                          backgroundColor: '#F0F6E8',
-                                          borderColor: theme.primary,
-                                        },
-                                      ]}>
-                                      <View
-                                        style={[
-                                          styles.praktikanAvatar,
-                                          { backgroundColor: theme.primary },
-                                        ]}>
-                                        <ThemedText
-                                          type="smallBold"
-                                          style={{
-                                            color: theme.primaryText,
-                                            fontSize: 12,
-                                          }}>
-                                          {initials(item.user.name)}
-                                        </ThemedText>
-                                      </View>
-
-                                      <View style={styles.praktikanMeta}>
-                                        <ThemedText type="smallBold">
-                                          {item.user.name}
-                                        </ThemedText>
-                                        <ThemedText
-                                          type="small"
-                                          themeColor="textSecondary">
-                                          {item.user.identityNumber} ·{' '}
-                                          {item.user.program}
-                                        </ThemedText>
-                                      </View>
-
-                                      <View
-                                        style={styles.praktikanAttendanceStatus}>
-                                        <View
-                                          style={[
-                                            styles.statusChipHadir,
-                                            { backgroundColor: theme.primary },
-                                          ]}>
-                                          <ThemedText
-                                            type="smallBold"
-                                            style={{
-                                              color: theme.primaryText,
-                                              fontSize: 11,
-                                            }}>
-                                            ✓ Hadir
-                                          </ThemedText>
-                                        </View>
-                                        <ThemedText
-                                          type="smallBold"
-                                          style={styles.timestampText}>
-                                          {formatTimeWithSeconds(
-                                            item.checkedInAt,
-                                          )}{' '}
-                                          WIB
-                                        </ThemedText>
-                                      </View>
-                                    </View>
-                                  ))}
-
-                                {(modalAttendanceFilter === 'all' || modalAttendanceFilter === 'excused') &&
-                                  filteredExcused.map((item) => (
-                                    <View key={item.user.id} style={[styles.praktikanRow, { backgroundColor: '#F8F1D9', borderColor: theme.moss }]}>
-                                      <View style={[styles.praktikanAvatar, { backgroundColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.primaryText, fontSize: 12 }}>{initials(item.user.name)}</ThemedText></View>
-                                      <View style={styles.praktikanMeta}><ThemedText type="smallBold">{item.user.name}</ThemedText><ThemedText type="small" themeColor="textSecondary">{item.user.identityNumber} · {item.user.program}</ThemedText></View>
-                                      <View style={styles.praktikanAttendanceStatus}><View style={[styles.statusChipBelumHadir, { backgroundColor: '#E9E2C8', borderColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.text, fontSize: 11 }}>✓ Izin Disetujui</ThemedText></View><ThemedText type="small" themeColor="textSecondary" style={styles.timestampText}>{item.excusedAt ? `${formatTimeWithSeconds(item.excusedAt)} WIB` : 'Disetujui'}</ThemedText></View>
-                                    </View>
-                                  ))}
-
-                                {(modalAttendanceFilter === 'all' ||
-                                  modalAttendanceFilter === 'absent') &&
-                                  filteredAbsent.map((user) => (
-                                    <View
-                                      key={user.id}
-                                      style={[
-                                        styles.praktikanRow,
-                                        {
-                                          backgroundColor: theme.background,
-                                          borderColor: theme.border,
-                                        },
-                                      ]}>
-                                      <View
-                                        style={[
-                                          styles.praktikanAvatar,
-                                          { backgroundColor: theme.moss },
-                                        ]}>
-                                        <ThemedText
-                                          type="smallBold"
-                                          style={{
-                                            color: theme.primaryText,
-                                            fontSize: 12,
-                                          }}>
-                                          {initials(user.name)}
-                                        </ThemedText>
-                                      </View>
-
-                                      <View style={styles.praktikanMeta}>
-                                        <ThemedText type="smallBold">
-                                          {user.name}
-                                        </ThemedText>
-                                        <ThemedText
-                                          type="small"
-                                          themeColor="textSecondary">
-                                          {user.identityNumber} · {user.program}
-                                        </ThemedText>
-                                      </View>
-
-                                      <View
-                                        style={styles.praktikanAttendanceStatus}>
-                                        <View
-                                          style={[
-                                            styles.statusChipBelumHadir,
-                                            {
-                                              backgroundColor: '#EAE4D7',
-                                              borderColor: theme.border,
-                                            },
-                                          ]}>
-                                          <ThemedText
-                                            type="small"
-                                            themeColor="textSecondary"
-                                            style={{ fontSize: 11 }}>
-                                            Belum Hadir
-                                          </ThemedText>
-                                        </View>
-                                        <ThemedText
-                                          type="small"
-                                          themeColor="textSecondary"
-                                          style={styles.timestampText}>
-                                          -
-                                        </ThemedText>
-                                      </View>
-                                    </View>
-                                  ))}
-
-                                {filteredAttended.length === 0 &&
-                                  filteredExcused.length === 0 &&
-                                  filteredAbsent.length === 0 && (
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary"
-                                      style={styles.noPraktikanMatch}>
-                                      Tidak ada mahasiswa yang cocok.
-                                    </ThemedText>
-                                  )}
-                              </View>
-                            </>
-                          );
-                        })()}
-                      </View>
-                    )}
 
                     {/* Modal Close Button */}
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => setSelectedSchedule(null)}
-                      style={({ pressed }) => [
-                        styles.modalCloseButton,
-                        {
-                          backgroundColor: theme.background,
-                          borderColor: theme.border,
-                        },
-                        pressed && styles.pressed,
-                      ]}>
-                      <ThemedText type="smallBold">Tutup Modal</ThemedText>
-                    </Pressable>
                   </ScrollView>
                 )}
               </ThemedView>
@@ -2449,7 +2025,7 @@ export default function AsistenJadwalScreen() {
           </Modal>
 
           {/* ============================================================== */}
-          {/* MODAL KONFIRMASI BUKA / TUTUP SESI (SRS-05)                     */}
+          {/* MODAL KONFIRMASI BUKA / TUTUP SESI                    */}
           {/* ============================================================== */}
           <Modal
             visible={!!confirmAction}
@@ -2533,7 +2109,7 @@ export default function AsistenJadwalScreen() {
           </Modal>
 
           {/* ============================================================== */}
-          {/* MODAL TEKS REKAP LAPORAN PRESENSI (SRS-06)                     */}
+          {/* MODAL TEKS REKAP LAPORAN PRESENSI                    */}
           {/* ============================================================== */}
           <Modal
             visible={!!reportModalText}
@@ -2677,13 +2253,6 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: Spacing.half,
-  },
-  backButton: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: 8,
-    borderWidth: 1,
   },
   headerBadge: {
     alignSelf: 'flex-start',
@@ -2877,11 +2446,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontFamily: Fonts.bold,
   },
-  pjBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
   scheduleSubMeta: {
     fontSize: 13,
   },
@@ -2962,9 +2526,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   sessionActionButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.three,
     borderRadius: 8,
+    borderWidth: 1,
   },
   rekapHeaderCard: {
     gap: Spacing.one,
@@ -3019,7 +2586,12 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
   },
   praktikanRowsList: {
+    maxHeight: 360,
+    flexGrow: 0,
+  },
+  praktikanRowsContent: {
     gap: Spacing.two,
+    paddingVertical: Spacing.half,
   },
   praktikanRow: {
     flexDirection: 'row',
@@ -3093,17 +2665,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: Spacing.two,
   },
-  modalSubTabContainer: {
-    flexDirection: 'row',
-    gap: Spacing.two,
-  },
-  modalSubTabButton: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: Spacing.two,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
   modalTabBody: {
     gap: Spacing.three,
   },
@@ -3134,26 +2695,15 @@ const styles = StyleSheet.create({
     marginTop: Spacing.one,
     paddingVertical: Spacing.three,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 8,
+    borderWidth: 1,
   },
   modalRekapMetricHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: Spacing.two,
-  },
-  modalSearchSection: {
-    gap: Spacing.two,
-  },
-  modalPraktikanList: {
-    gap: Spacing.two,
-  },
-  modalCloseButton: {
-    alignItems: 'center',
-    paddingVertical: Spacing.three,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginTop: Spacing.two,
   },
   confirmBackdrop: {
     flex: 1,
@@ -3222,5 +2772,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
 });
