@@ -1,7 +1,6 @@
 import {
   Timestamp,
   collection,
-  addDoc,
   doc,
   onSnapshot,
   query,
@@ -15,6 +14,8 @@ import {
 } from 'firebase/firestore';
 
 import { getFirebaseDb } from '@/services/firebase';
+import { getPracticumWindowState } from '@/utils/practicum-window';
+
 import type {
   AttendanceRecord,
   CheckInResult,
@@ -151,12 +152,73 @@ export function subscribeToAttendanceForUser(
 }
 
 export async function openSession(sessionId: string): Promise<void> {
-  await updateDoc(doc(getFirebaseDb(), 'sessions', sessionId), {
-    status: 'open',
-    openedAt: serverTimestamp(),
-    closedAt: null,
+  const db = getFirebaseDb();
+  const sessionRef = doc(db, 'sessions', sessionId);
+
+  await runTransaction(db, async (transaction) => {
+    const sessionSnapshot = await transaction.get(sessionRef);
+
+    if (!sessionSnapshot.exists()) {
+      throw new Error('Sesi tidak ditemukan.');
+    }
+
+    if (toSessionStatus(sessionSnapshot.data().status) === 'open') {
+      throw new Error('Sesi sudah dibuka.');
+    }
+
+    const scheduleId = sessionSnapshot.data().scheduleId;
+
+    if (typeof scheduleId !== 'string' || !scheduleId) {
+      throw new Error('Sesi tidak memiliki jadwal yang valid.');
+    }
+
+    const scheduleSnapshot = await transaction.get(
+      doc(db, 'schedules', scheduleId),
+    );
+
+    if (!scheduleSnapshot.exists()) {
+      throw new Error('Jadwal sesi tidak ditemukan.');
+    }
+
+    const scheduleData = scheduleSnapshot.data();
+    const date = scheduleData.date;
+    const startTime = scheduleData.startTime;
+    const endTime = scheduleData.endTime;
+
+    if (
+      typeof date !== 'string' ||
+      typeof startTime !== 'string' ||
+      typeof endTime !== 'string'
+    ) {
+      throw new Error('Jadwal sesi tidak lengkap.');
+    }
+
+    const window = getPracticumWindowState({ date, startTime, endTime });
+
+    if (window.phase === 'before') {
+      throw new Error(
+        `Sesi belum dapat dibuka. Praktikum dimulai pukul ${startTime}.`,
+      );
+    }
+
+    if (window.phase === 'after') {
+      throw new Error(
+        `Waktu praktikum sudah berakhir pukul ${endTime}. Sesi tidak dapat dibuka.`,
+      );
+    }
+
+    if (window.phase === 'invalid') {
+      throw new Error('Jadwal sesi tidak valid sehingga sesi tidak dapat dibuka.');
+    }
+
+    transaction.update(sessionRef, {
+      status: 'open',
+      openedAt: serverTimestamp(),
+      closedAt: null,
+    });
   });
 }
+
 
 export async function closeSession(sessionId: string): Promise<void> {
   await updateDoc(doc(getFirebaseDb(), 'sessions', sessionId), {
@@ -166,11 +228,22 @@ export async function closeSession(sessionId: string): Promise<void> {
 }
 
 export async function createSession(scheduleId: string): Promise<void> {
-  await addDoc(collection(getFirebaseDb(), 'sessions'), {
-    scheduleId,
-    status: 'scheduled',
-    openedAt: null,
-    closedAt: null,
+  const db = getFirebaseDb();
+  const sessionRef = doc(db, 'sessions', `session_${scheduleId}`);
+
+  await runTransaction(db, async (transaction) => {
+    const existing = await transaction.get(sessionRef);
+
+    if (existing.exists()) {
+      return;
+    }
+
+    transaction.set(sessionRef, {
+      scheduleId,
+      status: 'scheduled',
+      openedAt: null,
+      closedAt: null,
+    });
   });
 }
 export async function checkIn(
@@ -191,8 +264,38 @@ export async function checkIn(
         return { ok: false, reason: 'unknown-session' };
       }
 
-      if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
+            if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
         return { ok: false, reason: 'not-open' };
+      }
+
+      const sessionScheduleId = sessionSnapshot.data().scheduleId;
+      const scheduleSnapshot =
+        typeof sessionScheduleId === 'string' && sessionScheduleId
+          ? await transaction.get(doc(db, 'schedules', sessionScheduleId))
+          : null;
+
+      if (!scheduleSnapshot || !scheduleSnapshot.exists()) {
+        return { ok: false, reason: 'unknown-session' };
+      }
+
+      const scheduleData = scheduleSnapshot.data();
+
+      if (
+        typeof scheduleData.date !== 'string' ||
+        typeof scheduleData.startTime !== 'string' ||
+        typeof scheduleData.endTime !== 'string'
+      ) {
+        return { ok: false, reason: 'unknown-session' };
+      }
+
+      const window = getPracticumWindowState({
+        date: scheduleData.date,
+        startTime: scheduleData.startTime,
+        endTime: scheduleData.endTime,
+      });
+
+      if (window.phase !== 'open') {
+        return { ok: false, reason: 'outside-window' };
       }
 
       const attendanceSnapshot = await transaction.get(attendanceRef);
