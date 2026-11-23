@@ -10,13 +10,15 @@ import type { CheckInFailureReason, Session } from '@/types';
 import { formatTime } from '@/utils/format';
 
 const FAILURE_MESSAGES: Record<CheckInFailureReason, string> = {
-   unauthorized: 'Kamu belum masuk. Silakan login ulang.',
+  unauthorized: 'Kamu belum masuk. Silakan login ulang.',
   'invalid-role': 'Hanya praktikan yang dapat melakukan presensi.',
   'unknown-session': 'Sesi tidak ditemukan.',
   'not-open': 'Sesi belum dibuka asisten.',
+  'outside-window': 'Waktu praktikum sudah berakhir. Presensi ditutup.',
+  excused: 'Kamu tercatat izin pada sesi ini.',
   'already-checked-in': 'Kamu sudah melakukan presensi pada sesi ini.',
-  excused: 'Izin kamu sudah disetujui. Kamu tidak perlu presensi manual.',
 };
+
 
 type CheckInButtonProps = {
   session: Session | undefined;
