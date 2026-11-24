@@ -200,7 +200,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [currentUser, currentUserDataIsLoaded, users],
   );
   const visibleSchedules = useMemo(
-    () => (currentUserDataIsLoaded ? schedules : []),
+    () =>
+      currentUserDataIsLoaded
+        ? schedules.filter((schedule) => schedule.status !== 'cancelled')
+        : [],
     [currentUserDataIsLoaded, schedules],
   );
   const visibleSessions = useMemo(() => {

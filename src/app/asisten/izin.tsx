@@ -264,7 +264,14 @@ export default function AsistenIzinScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   safeArea: { flex: 1 },
-  content: { width: '100%', maxWidth: MaxContentWidth, alignSelf: 'center', padding: Spacing.four, gap: Spacing.three },
+  content: {
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    alignSelf: 'center',
+    padding: Spacing.four,
+    paddingBottom: 110,
+    gap: Spacing.three,
+  },
   backButton: { alignSelf: 'flex-start', paddingVertical: Spacing.one },
   header: { gap: Spacing.half },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },

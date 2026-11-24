@@ -19,6 +19,13 @@ export type Schedule = {
   startTime: string;
   endTime: string;
   assistantId: string;
+  status?: 'scheduled' | 'rescheduled' | 'cancelled';
+  seriesId?: string;
+  seriesActive?: boolean;
+  seriesIndex?: number;
+  seriesCount?: number;
+  originalScheduleId?: string;
+  replacementScheduleId?: string;
 };
 
 export type SessionStatus = 'scheduled' | 'open' | 'closed';

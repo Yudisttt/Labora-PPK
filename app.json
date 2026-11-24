@@ -25,7 +25,12 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
+      [
+        "expo-router",
+        {
+          "asyncRoutes": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -40,11 +45,6 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {
-        "asyncRoutes": {
-          "web": true
-        }
-      },
       "eas": {
         "projectId": "8b479adb-a2b6-42fa-b085-ba2b543b348c"
       }

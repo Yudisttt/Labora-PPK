@@ -3,11 +3,13 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch,
@@ -30,12 +32,18 @@ export type ClassParticipant = {
   userId: string;
 };
 
-export type PracticumSchedule = Schedule & {
+export type PracticumSchedule = Omit<Schedule, 'status' | 'originalScheduleId' | 'replacementScheduleId'> & {
   classId: string;
+  status: 'scheduled' | 'rescheduled' | 'cancelled';
+  originalScheduleId?: string;
+  replacementScheduleId?: string;
 };
 
 type ClassInput = Omit<PracticumClass, 'id'>;
-type ScheduleInput = Omit<PracticumSchedule, 'id'>;
+type ScheduleInput = Omit<
+  PracticumSchedule,
+  'id' | 'status' | 'originalScheduleId' | 'replacementScheduleId'
+>;
 type InitialScheduleInput = Omit<ScheduleInput, 'classId' | 'kelas' | 'assistantId'>;
 
 function parseClass(id: string, value: Record<string, unknown>) {
@@ -81,7 +89,7 @@ function parseSchedule(id: string, value: Record<string, unknown>) {
     return null;
   }
 
-  return {
+  const schedule: PracticumSchedule = {
     id,
     classId: value.classId,
     praktikum: value.praktikum,
@@ -91,7 +99,24 @@ function parseSchedule(id: string, value: Record<string, unknown>) {
     startTime: value.startTime,
     endTime: value.endTime,
     assistantId: value.assistantId,
-  } satisfies PracticumSchedule;
+    status:
+      value.status === 'rescheduled'
+        ? 'rescheduled'
+        : value.status === 'cancelled'
+          ? 'cancelled'
+          : 'scheduled',
+  };
+  if (typeof value.seriesId === 'string') schedule.seriesId = value.seriesId;
+  if (typeof value.seriesActive === 'boolean') schedule.seriesActive = value.seriesActive;
+  if (typeof value.seriesIndex === 'number') schedule.seriesIndex = value.seriesIndex;
+  if (typeof value.seriesCount === 'number') schedule.seriesCount = value.seriesCount;
+  if (typeof value.originalScheduleId === 'string') {
+    schedule.originalScheduleId = value.originalScheduleId;
+  }
+  if (typeof value.replacementScheduleId === 'string') {
+    schedule.replacementScheduleId = value.replacementScheduleId;
+  }
+  return schedule;
 }
 
 function parseUser(id: string, value: Record<string, unknown>) {
@@ -355,7 +380,7 @@ export async function deleteClass(id: string) {
 
   if (!participants.empty || !schedules.empty) {
     throw new Error(
-      'Kelas masih memiliki peserta atau jadwal. Hapus data terkait terlebih dahulu.',
+      'Praktikum di Lab ini masih memiliki peserta atau jadwal. Hapus data terkait terlebih dahulu.',
     );
   }
 
@@ -365,9 +390,113 @@ export async function deleteClass(id: string) {
 export async function createSchedule(input: ScheduleInput) {
   return addDoc(collection(getFirebaseDb(), 'schedules'), {
     ...input,
+    status: 'scheduled',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function createWeeklyScheduleSeries(
+  input: ScheduleInput,
+  meetingCount: number,
+) {
+  const db = getFirebaseDb();
+  const count = Math.max(1, Math.min(200, Math.floor(meetingCount)));
+  const seriesId = doc(collection(db, 'schedules')).id;
+  const schedules = Array.from({ length: count }, (_, index) => {
+    const date = new Date(`${input.date}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + index * 7);
+    const dateKey = date.toISOString().slice(0, 10);
+    const scheduleRef = doc(collection(db, 'schedules'));
+    return {
+      ref: scheduleRef,
+      date: dateKey,
+      data: {
+        ...input,
+        date: dateKey,
+        status: 'scheduled' as const,
+        seriesId,
+        seriesActive: true,
+        seriesIndex: index + 1,
+        seriesCount: count,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+    };
+  });
+
+  for (let offset = 0; offset < schedules.length; offset += 450) {
+    const batch = writeBatch(db);
+    schedules.slice(offset, offset + 450).forEach(({ ref, data }) => {
+      batch.set(ref, data);
+    });
+    await batch.commit();
+  }
+
+  for (let offset = 0; offset < schedules.length; offset += 450) {
+    const batch = writeBatch(db);
+    schedules.slice(offset, offset + 450).forEach(({ ref }) => {
+      batch.set(doc(db, 'sessions', `session_${ref.id}`), {
+        scheduleId: ref.id,
+        status: 'scheduled',
+        openedAt: null,
+        closedAt: null,
+      });
+    });
+    await batch.commit();
+  }
+
+  return { seriesId, meetingCount: count };
+}
+
+export async function createSeriesMeeting(
+  input: ScheduleInput,
+  seriesId: string,
+  seriesIndex: number,
+) {
+  const db = getFirebaseDb();
+  const scheduleRef = doc(collection(db, 'schedules'));
+  await setDoc(scheduleRef, {
+    ...input,
+    status: 'scheduled',
+    seriesId,
+    seriesActive: true,
+    seriesIndex,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  await setDoc(doc(db, 'sessions', `session_${scheduleRef.id}`), {
+    scheduleId: scheduleRef.id,
+    status: 'scheduled',
+    openedAt: null,
+    closedAt: null,
+  });
+  return scheduleRef.id;
+}
+
+export async function endScheduleSeries(seriesId: string) {
+  const db = getFirebaseDb();
+  const snapshot = await getDocs(
+    query(collection(db, 'schedules'), where('seriesId', '==', seriesId)),
+  );
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const schedules = snapshot.docs;
+
+  for (let offset = 0; offset < schedules.length; offset += 450) {
+    const batch = writeBatch(db);
+    schedules.slice(offset, offset + 450).forEach((item) => {
+      const data = item.data();
+      batch.update(item.ref, {
+        seriesActive: false,
+        ...(typeof data.date === 'string' && data.date > todayKey
+          ? { status: 'cancelled' }
+          : {}),
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
 }
 
 export async function updateSchedule(id: string, input: ScheduleInput) {
@@ -375,6 +504,45 @@ export async function updateSchedule(id: string, input: ScheduleInput) {
     ...input,
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function rescheduleMeeting(
+  originalScheduleId: string,
+  input: ScheduleInput,
+) {
+  const db = getFirebaseDb();
+  const batch = writeBatch(db);
+  const originalRef = doc(db, 'schedules', originalScheduleId);
+  const replacementRef = doc(collection(db, 'schedules'));
+  const originalSnapshot = await getDoc(originalRef);
+  if (!originalSnapshot.exists()) {
+    throw new Error('Pertemuan yang ingin dipindahkan tidak ditemukan.');
+  }
+  const originalData = originalSnapshot.data();
+
+  batch.update(originalRef, {
+    status: 'rescheduled',
+    replacementScheduleId: replacementRef.id,
+    updatedAt: serverTimestamp(),
+  });
+  batch.set(replacementRef, {
+    ...input,
+    status: 'scheduled',
+    ...(typeof originalData.seriesId === 'string'
+      ? {
+          seriesId: originalData.seriesId,
+          seriesActive: originalData.seriesActive !== false,
+          seriesIndex: originalData.seriesIndex,
+          seriesCount: originalData.seriesCount,
+        }
+      : {}),
+    originalScheduleId,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  await batch.commit();
+  return replacementRef.id;
 }
 
 export async function deleteSchedule(id: string) {

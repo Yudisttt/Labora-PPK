@@ -14,11 +14,14 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 
-import { RoleSwitcher } from "@/components/role-switcher";
 import { SessionStatusBadge } from "@/components/session-status-badge";
+import {
+  DashboardCapsule,
+  DashboardTabs,
+} from "@/components/dashboard-ui";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { MaxContentWidth, Spacing } from "@/constants/theme";
+import { Spacing, Fonts } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useApp } from "@/state/app-context";
 import type { Schedule, Session } from "@/types";
@@ -53,13 +56,31 @@ export default function PraktikanJadwalScreen() {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   const myAttendance = currentUser ? getAttendanceForUser(currentUser.id) : [];
-  const historyBySchedule = schedules.map((schedule) => ({
-    schedule,
-    records: myAttendance.filter((record) => {
-      const session = sessions.find((item) => item.id === record.sessionId);
-      return session?.scheduleId === schedule.id;
+  const historyGroups = new Map<
+    string,
+    { schedule: Schedule; scheduleIds: Set<string> }
+  >();
+  schedules.forEach((schedule) => {
+    const key = `${schedule.praktikum.trim().toLocaleLowerCase()}::${schedule.kelas.trim().toLocaleLowerCase()}`;
+    const existingGroup = historyGroups.get(key);
+    if (existingGroup) {
+      existingGroup.scheduleIds.add(schedule.id);
+    } else {
+      historyGroups.set(key, {
+        schedule,
+        scheduleIds: new Set([schedule.id]),
+      });
+    }
+  });
+  const historyBySchedule = [...historyGroups.values()].map(
+    ({ schedule, scheduleIds }) => ({
+      schedule,
+      records: myAttendance.filter((record) => {
+        const session = sessions.find((item) => item.id === record.sessionId);
+        return session ? scheduleIds.has(session.scheduleId) : false;
+      }),
     }),
-  }));
+  );
 
   const openSessions = sessions.filter((s) => s.status === "open");
   const openSessionCount = openSessions.length;
@@ -195,18 +216,38 @@ export default function PraktikanJadwalScreen() {
   }
 
   return (
-    <ThemedView style={styles.screen}>
+    <ThemedView
+      style={[
+        styles.screen,
+        {
+          backgroundImage: `linear-gradient(180deg, ${theme.glassInput} 0%, ${theme.background} 58%, ${theme.primary} 100%)`,
+        },
+      ]}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: insets.bottom + Spacing.six },
+            { paddingBottom: insets.bottom + 90 },
           ]}
         >
-          {/* Header Switcher Role & Akun */}
-          <RoleSwitcher />
+          {/* Top Big Dark Capsule Container (Persis Desain Figma) */}
+          <DashboardCapsule
+            title="Jadwal & Presensi"
+            subtitle="Pantau kehadiran dan sesi aktifmu hari ini"
+            actions={[
+              {
+                label: 'Ajukan Izin',
+                onPress: () => router.push('/praktikan/izin'),
+              },
+            ]}
+            stats={[
+              { label: 'Semua Jadwal', value: schedules.length, active: scheduleFilter === 'all', onPress: () => selectScheduleFilter('all') },
+              { label: 'Sesi Dibuka', value: openSessionCount, active: scheduleFilter === 'open', onPress: () => selectScheduleFilter('open') },
+              { label: 'Absensi', value: myAttendance.length, active: scheduleFilter === 'recorded', onPress: () => selectScheduleFilter('recorded') },
+            ]}
+          />
 
-          {/* Feedback banner untuk web/mobile */}
+          {/* Feedback toast */}
           {feedbackMessage ? (
             <View
               style={[
@@ -220,254 +261,13 @@ export default function PraktikanJadwalScreen() {
             </View>
           ) : null}
 
-          {/* Tinted Green Glass Header Banner */}
-          <View
-            style={[
-              styles.headerGlassCard,
-              {
-                backgroundColor: theme.primary,
-                borderColor: theme.primary,
-              },
-            ]}>
-            <View style={styles.headerGlassBadge}>
-              <ThemedText
-                type="smallBold"
-                style={{ color: '#FFFFFF', letterSpacing: 1.2, fontSize: 11, fontWeight: '700' }}>
-                PORTAL PRAKTIKAN
-              </ThemedText>
-            </View>
-            <ThemedText type="subtitle" style={[styles.headerTitleText, { color: '#FFFFFF' }]}>
-              Halo, {currentUser?.name ?? "Praktikan"}
-            </ThemedText>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityHint="Membuka formulir pengajuan izin."
-              onPress={() =>
-                router.push("/praktikan/izin" as Parameters<typeof router.push>[0])
-              }
-              style={({ pressed }) => [
-                styles.permissionButton,
-                {
-                  backgroundColor: theme.primaryText,
-                  borderColor: theme.primaryText,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                Ajukan Izin
-              </ThemedText>
-            </Pressable>
-            <View style={styles.headerUserPill}>
-              <ThemedText type="small" style={{ color: '#FFFFFF', opacity: 0.95 }}>
-                Lihat jadwal & presensi saya
-              </ThemedText>
-            </View>
-          </View>
-
-          {/* Statistik Cards Tinted Glass */}
-          <View style={styles.statsRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: scheduleFilter === "all" }}
-              onPress={() => selectScheduleFilter("all")}
-              style={({ pressed }) => [
-                styles.statCard,
-                {
-                  backgroundColor:
-                    scheduleFilter === "all"
-                      ? theme.primary
-                      : theme.glassCard,
-                  borderColor:
-                    scheduleFilter === "all"
-                      ? theme.primary
-                      : theme.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText
-                type="subtitle"
-                style={[
-                  styles.statValue,
-                  {
-                    color:
-                      scheduleFilter === "all"
-                        ? theme.primaryText
-                        : theme.primary,
-                  },
-                ]}
-              >
-                {schedules.length}
-              </ThemedText>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    scheduleFilter === "all"
-                      ? theme.primaryText
-                      : theme.textSecondary,
-                  fontSize: 11,
-                }}
-              >
-                Semua Jadwal
-              </ThemedText>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: scheduleFilter === "open" }}
-              onPress={() => selectScheduleFilter("open")}
-              style={({ pressed }) => [
-                styles.statCard,
-                {
-                  backgroundColor:
-                    scheduleFilter === "open"
-                      ? theme.primary
-                      : theme.glassCard,
-                  borderColor:
-                    scheduleFilter === "open"
-                      ? theme.primary
-                      : theme.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText
-                type="subtitle"
-                style={[
-                  styles.statValue,
-                  {
-                    color:
-                      scheduleFilter === "open"
-                        ? theme.primaryText
-                        : theme.primary,
-                  },
-                ]}
-              >
-                {openSessionCount}
-              </ThemedText>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    scheduleFilter === "open"
-                      ? theme.primaryText
-                      : theme.textSecondary,
-                  fontSize: 11,
-                }}
-              >
-                Sesi Dibuka
-              </ThemedText>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ selected: scheduleFilter === "recorded" }}
-              onPress={() => selectScheduleFilter("recorded")}
-              style={({ pressed }) => [
-                styles.statCard,
-                {
-                  backgroundColor:
-                    scheduleFilter === "recorded"
-                      ? theme.primary
-                      : theme.glassCard,
-                  borderColor:
-                    scheduleFilter === "recorded"
-                      ? theme.primary
-                      : theme.border,
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText
-                type="subtitle"
-                style={[
-                  styles.statValue,
-                  {
-                    color:
-                      scheduleFilter === "recorded"
-                        ? theme.primaryText
-                        : theme.primary,
-                  },
-                ]}
-              >
-                {myAttendance.length}
-              </ThemedText>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                  scheduleFilter === "recorded"
-                      ? theme.primaryText
-                      : theme.textSecondary,
-                  fontSize: 11,
-                }}
-              >
-                Hadir / Izin
-              </ThemedText>
-            </Pressable>
-          </View>
-
-          {/* Tab Filter Antara Jadwal & Riwayat */}
-          <View
-            style={[
-              styles.tabContainer,
-              {
-                backgroundColor: theme.glassCard,
-                borderColor: theme.border,
-              },
-            ]}>
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: activeTab === "jadwal" }}
-              onPress={() => setActiveTab("jadwal")}
-              style={({ pressed }) => [
-                styles.tabButton,
-                {
-                  backgroundColor:
-                    activeTab === "jadwal" ? theme.primary : "transparent",
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    activeTab === "jadwal"
-                      ? theme.primaryText
-                      : theme.text,
-                }}>
-                Jadwal Praktikum
-              </ThemedText>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: activeTab === "riwayat" }}
-              onPress={() => setActiveTab("riwayat")}
-              style={({ pressed }) => [
-                styles.tabButton,
-                {
-                  backgroundColor:
-                    activeTab === "riwayat" ? theme.primary : "transparent",
-                },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    activeTab === "riwayat"
-                      ? theme.primaryText
-                      : theme.text,
-                }}>
-                Riwayat Kehadiran
-              </ThemedText>
-            </Pressable>
-          </View>
+          {/* Asymmetric Nav Tabs Container (Jadwal Praktikum vs Riwayat Kehadiran) */}
+          <DashboardTabs
+            tabs={[
+              { key: 'jadwal', label: 'Jadwal Praktikum', active: activeTab === 'jadwal', onPress: () => setActiveTab('jadwal') },
+              { key: 'riwayat', label: 'Riwayat Kehadiran', active: activeTab === 'riwayat', onPress: () => setActiveTab('riwayat') },
+            ]}
+          />
 
           {/* TAB CONTENT: JADWAL & DETAIL SESI */}
           {activeTab === "jadwal" && (
@@ -505,8 +305,12 @@ export default function PraktikanJadwalScreen() {
                       style={[
                         styles.card,
                         {
-                          backgroundColor: theme.glassInput,
-                          borderColor: isOpen ? theme.success : theme.glassBorder,
+                          backgroundColor: 'rgba(247, 241, 231, 0.62)',
+                          backgroundImage: `linear-gradient(145deg, rgba(255, 255, 255, 0.92) 0%, rgba(247, 241, 231, 0.78) 36%, rgba(237, 228, 213, 0.72) 100%)`,
+                          borderColor: theme.glassBorderHighlight,
+                          ...(Platform.OS === 'web'
+                            ? ({ backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' } as object)
+                            : {}),
                         },
                         isOpen && styles.cardHighlight,
                       ]}
@@ -520,7 +324,7 @@ export default function PraktikanJadwalScreen() {
                           >
                             {schedule.praktikum}
                           </ThemedText>
-                          <ThemedText type="small" themeColor="textSecondary">
+                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
                             {schedule.kelas} · {schedule.ruang}
                           </ThemedText>
                         </View>
@@ -532,19 +336,19 @@ export default function PraktikanJadwalScreen() {
                       {/* Detail Info Waktu & Tanggal */}
                       <View style={styles.infoRow}>
                         <View style={styles.infoItem}>
-                          <ThemedText type="small" themeColor="textSecondary">
+                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
                             Waktu
                           </ThemedText>
-                          <ThemedText type="smallBold">
+                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
                             {schedule.startTime} - {schedule.endTime} WIB
                           </ThemedText>
                         </View>
                         <View style={styles.infoDivider} />
                         <View style={styles.infoItem}>
-                          <ThemedText type="small" themeColor="textSecondary">
+                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
                             Tanggal
                           </ThemedText>
-                          <ThemedText type="smallBold">
+                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
                             {formatDate(schedule.date)}
                           </ThemedText>
                         </View>
@@ -553,10 +357,10 @@ export default function PraktikanJadwalScreen() {
                       {/* Asisten Lab */}
                       {assistant ? (
                         <View style={styles.assistantBadge}>
-                          <ThemedText type="small" themeColor="textSecondary">
+                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
                             Asisten Pengampu:
                           </ThemedText>
-                          <ThemedText type="smallBold">
+                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
                             {assistant.name}
                           </ThemedText>
                         </View>
@@ -569,14 +373,10 @@ export default function PraktikanJadwalScreen() {
                           onPress={() => setSelectedSchedule(schedule)}
                           style={({ pressed }) => [
                             styles.detailButton,
-                            {
-                              borderColor: theme.border,
-                              backgroundColor: theme.backgroundSelected,
-                            },
                             pressed && styles.pressed,
                           ]}
                         >
-                          <ThemedText type="smallBold">
+                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
                             Lihat Detail Sesi
                           </ThemedText>
                         </Pressable>
@@ -1052,10 +852,10 @@ const styles = StyleSheet.create({
   },
   content: {
     width: "100%",
-    maxWidth: MaxContentWidth,
+    maxWidth: 480,
     alignSelf: "center",
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.four,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
     gap: Spacing.four,
   },
   feedbackToast: {
@@ -1068,93 +868,149 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     textAlign: "center",
   },
-  headerGlassCard: {
-    padding: Spacing.four,
+  topBigCapsule: {
+    backgroundColor: '#354024',
+    borderRadius: 36,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.five,
+    gap: Spacing.three,
+    shadowColor: '#1A2111',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  innerTitleBox: {
+    backgroundColor: '#27301B',
     borderRadius: 24,
     borderWidth: 1.5,
-    gap: Spacing.two,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+    paddingVertical: Spacing.four,
+    paddingHorizontal: Spacing.four,
+    gap: 4,
   },
-  headerGlassBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.half,
-    borderRadius: 999,
-    backgroundColor: '#889063',
-    borderWidth: 1,
-    borderColor: '#AAB18B',
-  },
-  headerTitleText: {
-    fontSize: 28,
-    lineHeight: 36,
+  innerBoxTitle: {
+    fontSize: 22,
     fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: Fonts.bold,
   },
-  headerUserPill: {
+  innerBoxSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontFamily: Fonts.regular,
+  },
+  actionPillButton: {
     alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: '#889063',
-    borderWidth: 1,
-    borderColor: '#AAB18B',
-  },
-  header: {
-    gap: Spacing.one,
-  },
-  permissionButton: {
-    alignSelf: "flex-start",
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+    backgroundColor: '#27301B',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.four,
     borderRadius: 999,
-    borderWidth: 1,
   },
-  statsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  actionPillText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+    fontFamily: Fonts.bold,
+  },
+  pillStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: Spacing.two,
+    marginTop: 4,
   },
-  statCard: {
-    flexGrow: 1,
-    flexBasis: 96,
-    alignItems: "center",
-    paddingVertical: Spacing.three + 2,
-    paddingHorizontal: Spacing.two,
+  ovalStatPill: {
+    flex: 1,
+    backgroundColor: '#445130',
     borderRadius: 22,
     borderWidth: 1.5,
-    gap: Spacing.half,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.one,
+    gap: 2,
   },
-  statValue: {
-    fontSize: 28,
-    lineHeight: 32,
+  ovalStatPillActive: {
+    backgroundColor: '#27301B',
+    borderColor: 'rgba(255, 255, 255, 0.45)',
+  },
+  ovalStatNumber: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: Fonts.bold,
+  },
+  ovalStatLabel: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontFamily: Fonts.medium,
+    textAlign: 'center',
+  },
+  asymmetricTabsWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: 4,
+  },
+  asymTabPill: {
+    paddingVertical: 12,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  asymTabActive: {
+    backgroundColor: '#354024',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomRightRadius: 24,
+    borderBottomLeftRadius: 6,
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  asymTabInactive: {
+    backgroundColor: 'transparent',
+  },
+  asymTabText: {
+    fontSize: 14,
+    fontFamily: Fonts.bold,
+  },
+  asymTabTextActive: {
+    color: '#FFFFFF',
     fontWeight: '700',
   },
-  tabContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.two,
-  },
-  tabButton: {
-    flexGrow: 1,
-    flexBasis: 140,
-    minHeight: 52,
-    paddingHorizontal: Spacing.two,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 18,
+  asymTabTextInactive: {
+    color: '#4C3D19',
+    fontWeight: '500',
   },
   list: {
     gap: Spacing.three,
   },
   card: {
     padding: Spacing.four,
-    borderRadius: 24,
+    backgroundColor: '#354024',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderBottomRightRadius: 28,
+    borderBottomLeftRadius: 6,
     borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
     gap: Spacing.three,
+    shadowColor: '#27301B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 14,
+    elevation: 4,
   },
   cardHighlight: {
-    borderLeftWidth: 5,
+    borderWidth: 2,
   },
   cardHeader: {
     flexDirection: "row",
@@ -1169,18 +1025,20 @@ const styles = StyleSheet.create({
   praktikumTitle: {
     fontSize: 18,
     lineHeight: 24,
+    color: '#354024',
+    fontWeight: '700',
     flexShrink: 1,
   },
   infoRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    backgroundColor: '#F7F1E7',
-    borderRadius: 16,
+    paddingVertical: Spacing.one + 2,
+    paddingHorizontal: Spacing.three,
+    backgroundColor: 'rgba(255, 255, 255, 0.46)',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#C8B995',
+    borderColor: 'rgba(255, 255, 255, 0.78)',
   },
   infoItem: {
     flex: 1,
@@ -1189,7 +1047,7 @@ const styles = StyleSheet.create({
   infoDivider: {
     width: 1,
     height: 30,
-    backgroundColor: "#D8D0BC",
+    backgroundColor: "rgba(255, 255, 255, 0.6)",
     marginHorizontal: Spacing.two,
   },
   assistantBadge: {
@@ -1206,10 +1064,12 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.one,
   },
   detailButton: {
-    paddingHorizontal: Spacing.three,
+    paddingHorizontal: Spacing.three + 2,
     paddingVertical: Spacing.two,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.82)',
+    backgroundColor: 'rgba(255, 255, 255, 0.48)',
   },
   checkInButton: {
     paddingHorizontal: Spacing.three + 2,

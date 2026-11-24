@@ -11,10 +11,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/state/auth-context';
 
@@ -22,6 +23,7 @@ export default function AuthScreen() {
   const theme = useTheme();
   const { currentUser, loading, error, signIn, register } = useAuth();
   const [isRegistering, setIsRegistering] = useState(false);
+  const [showAuthForm, setShowAuthForm] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -85,7 +87,13 @@ export default function AuthScreen() {
   }
 
   return (
-    <ThemedView style={styles.screen}>
+    <ThemedView
+      style={[
+        styles.screen,
+        !showAuthForm && {
+          backgroundImage: `linear-gradient(180deg, ${theme.glassInput} 0%, ${theme.background} 48%, rgba(136, 144, 99, 0.48) 100%)`,
+        },
+      ]}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={styles.flex}
@@ -93,6 +101,93 @@ export default function AuthScreen() {
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled">
+            {!showAuthForm ? (
+              <View
+                style={styles.landingPage}>
+                <View style={styles.landingCopy}>
+                  <ThemedText
+                    style={[styles.landingBrandText, { color: theme.primary }]}
+                    accessibilityRole="header">
+                    LABORA
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.landingTitle, { color: theme.primary }]}
+                    accessibilityRole="header">
+                    Praktikum lebih teratur
+                  </ThemedText>
+                  <ThemedText
+                    style={[styles.landingSubtitle, { color: theme.textSecondary }]}>
+                    Jadwal, izin, dan presensi dalam satu tempat
+                  </ThemedText>
+                </View>
+
+                {error ? (
+                  <View
+                    accessibilityRole="alert"
+                    style={[
+                      styles.errorBox,
+                      {
+                        backgroundColor: theme.dangerSoft,
+                        borderColor: theme.danger,
+                      },
+                    ]}>
+                    <ThemedText type="small" style={{ color: theme.danger }}>
+                      {error}
+                    </ThemedText>
+                  </View>
+                ) : null}
+
+                <View style={styles.landingActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setIsRegistering(true);
+                      setShowAuthForm(true);
+                    }}
+                    style={({ pressed }) => [
+                      styles.landingPrimaryButton,
+                      {
+                        backgroundColor: theme.primary,
+                        borderColor: theme.primary,
+                      },
+                      pressed && styles.dimmed,
+                    ]}>
+                    <ThemedText type="smallBold" style={{ color: theme.primaryText }}>
+                      BUAT AKUN
+                    </ThemedText>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setIsRegistering(false);
+                      setShowAuthForm(true);
+                    }}
+                    style={({ pressed }) => [
+                      styles.landingSecondaryButton,
+                      {
+                        backgroundColor: theme.glassCard,
+                        borderColor: theme.glassBorderHighlight,
+                      },
+                      pressed && styles.dimmed,
+                    ]}>
+                    <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                      MASUK
+                    </ThemedText>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.formContent}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Kembali ke halaman awal"
+                  onPress={() => setShowAuthForm(false)}
+                  style={styles.formBackButton}>
+                  <Ionicons name="arrow-back" size={20} color={theme.primary} />
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                    Kembali
+                  </ThemedText>
+                </Pressable>
             {/* Tinted Green Glass Hero Banner */}
             <View
               style={[
@@ -102,13 +197,6 @@ export default function AuthScreen() {
                   borderColor: theme.primary,
                 },
               ]}>
-              <View style={styles.heroBadge}>
-                <ThemedText
-                  type="smallBold"
-                  style={{ color: theme.primaryText, letterSpacing: 1.5, fontSize: 11 }}>
-                  LABORA
-                </ThemedText>
-              </View>
               <ThemedText
                 type="title"
                 style={[styles.heroTitle, { color: theme.primaryText }]}>
@@ -250,6 +338,8 @@ export default function AuthScreen() {
                 </ThemedText>
               ) : null}
             </View>
+              </View>
+            )}
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -305,25 +395,94 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.six,
     gap: Spacing.four,
   },
+  landingPage: {
+    width: '100%',
+    maxWidth: 420,
+    minHeight: 640,
+    alignSelf: 'center',
+    justifyContent: 'center',
+    gap: Spacing.five,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.three,
+  },
+  landingBrandText: {
+    fontFamily: Fonts.bold,
+    fontSize: 30,
+    lineHeight: 36,
+    letterSpacing: -0.6,
+  },
+  landingCopy: {
+    alignItems: 'center',
+    gap: Spacing.three,
+    paddingHorizontal: Spacing.two,
+  },
+  landingTitle: {
+    maxWidth: 340,
+    fontFamily: Fonts.semiBold,
+    fontSize: 18,
+    lineHeight: 25,
+    letterSpacing: 0,
+    textAlign: 'center',
+  },
+  landingSubtitle: {
+    maxWidth: 300,
+    fontFamily: Fonts.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  landingActions: {
+    width: '100%',
+    maxWidth: 300,
+    alignSelf: 'center',
+    gap: Spacing.two,
+  },
+  landingPrimaryButton: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 26,
+    borderWidth: 1.5,
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  landingSecondaryButton: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 26,
+    borderWidth: 1.5,
+  },
+  formContent: {
+    width: '100%',
+    maxWidth: 480,
+    alignSelf: 'center',
+    gap: Spacing.three,
+  },
+  formBackButton: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.one,
+  },
   heroGlassCard: {
     width: '100%',
-    maxWidth: MaxContentWidth,
+    maxWidth: 480,
     alignSelf: 'center',
     gap: Spacing.two,
     paddingHorizontal: Spacing.five,
     paddingTop: Spacing.five,
     paddingBottom: Spacing.five,
-    borderRadius: 24,
+    borderTopLeftRadius: 42,
+    borderTopRightRadius: 42,
+    borderBottomLeftRadius: 42,
+    borderBottomRightRadius: 92,
     borderWidth: 1.5,
-  },
-  heroBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.half,
-    borderRadius: 999,
-    backgroundColor: '#889063',
-    borderWidth: 1,
-    borderColor: '#AAB18B',
   },
   heroTitle: {
     maxWidth: 520,
@@ -337,7 +496,7 @@ const styles = StyleSheet.create({
   },
   glassFormCard: {
     width: '100%',
-    maxWidth: MaxContentWidth,
+    maxWidth: 480,
     alignSelf: 'center',
     padding: Spacing.five,
     gap: Spacing.three,
@@ -385,7 +544,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: 'transparent',
     ...(Platform.OS === 'web'
-      ? ({ outlineStyle: 'none', background: 'transparent' } as unknown as object)
+      ? ({ outlineStyle: 'none' } as unknown as object)
       : {}),
   },
   submit: {
