@@ -34,7 +34,6 @@ import {
   formatDate,
   formatDateTimeWithSeconds,
   formatTimeWithSeconds,
-  initials,
 } from '@/utils/format';
 import {
   getPracticumWindowState,
@@ -77,6 +76,8 @@ export default function AsistenJadwalScreen() {
   const [rekapSelectedScheduleId, setRekapSelectedScheduleId] =
     useState<string>('all');
   const [rekapSearchPraktikan, setRekapSearchPraktikan] = useState('');
+  const [expandedRekapScheduleId, setExpandedRekapScheduleId] =
+    useState<string | null>(null);
 
   // Confirmation & Feedback States
   const [confirmAction, setConfirmAction] = useState<ConfirmActionState>(null);
@@ -414,6 +415,48 @@ export default function AsistenJadwalScreen() {
       : `linear-gradient(145deg, ${theme.glassCard} 0%, ${theme.glassGreenSheen} 38%, ${theme.glassGreenLight} 100%)`,
     borderColor: selected ? theme.glassBorderHighlight : theme.glassBorder,
   });
+
+  const rekapSearchKey = rekapSearchPraktikan.trim().toLowerCase();
+  const rekapMatchesSearch = (name: string, identityNumber: string) =>
+    !rekapSearchKey ||
+    name.toLowerCase().includes(rekapSearchKey) ||
+    identityNumber.toLowerCase().includes(rekapSearchKey);
+
+  const visibleRekapRows = schedules
+    .filter((schedule) =>
+      rekapSelectedScheduleId === 'all'
+        ? true
+        : schedule.id === rekapSelectedScheduleId,
+    )
+    .flatMap((schedule) => {
+      const session = getSessionsForSchedule(schedule.id)[0];
+      if (!session) return [];
+
+      const data = getSessionAttendanceData(session);
+
+      return [
+        {
+          schedule,
+          session,
+          ...data,
+          attended: data.attendedUsers.filter((item) =>
+            rekapMatchesSearch(item.user.name, item.user.identityNumber),
+          ),
+          excused: data.excusedUsers.filter((item) =>
+            rekapMatchesSearch(item.user.name, item.user.identityNumber),
+          ),
+          absent: data.absentUsers.filter((user) =>
+            rekapMatchesSearch(user.name, user.identityNumber),
+          ),
+        },
+      ];
+    });
+
+  const expandedRekapRow = expandedRekapScheduleId
+    ? visibleRekapRows.find(
+        (row) => row.schedule.id === expandedRekapScheduleId,
+      )
+    : undefined;
 
   return (
     <ThemedView style={styles.screen}>
@@ -984,20 +1027,52 @@ export default function AsistenJadwalScreen() {
           {/* ============================================================== */}
           {activeTab === 'rekap' && (
             <View style={styles.tabContent}>
-              {/* Rekap Header & Global Controls */}
-              <View style={styles.rekapHeaderCard}>
-                <ThemedText type="smallBold" style={{ fontSize: 16 }}>
-                  Rekapitulasi Kehadiran Praktikan
+              {/* Rekap Header */}
+              <View
+                style={[
+                  styles.rekapHeaderCard,
+                  {
+                    backgroundColor: '#F7F1E7',
+                    borderColor: '#C8B995',
+                  },
+                ]}>
+                <ThemedText type="subtitle" style={styles.rekapTitle}>
+                  Rekapitulasi Kehadiran
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Pantau kehadiran seluruh praktikan di setiap jadwal praktikum
-                  yang diselenggarakan.
+                  Pantau kehadiran praktikan di setiap jadwal praktikum.
                 </ThemedText>
 
-                {/* Filter Schedule Selector */}
-                <View style={styles.rekapFilterSection}>
-                  <ThemedText type="smallBold" themeColor="textSecondary">
-                    Pilih Mata Praktikum:
+                <View style={styles.rekapStatRow}>
+                  {[
+                    { label: 'Jadwal', value: schedules.length },
+                    { label: 'Praktikan', value: praktikanUsers.length },
+                    { label: 'Total Presensi', value: attendance.length },
+                  ].map((stat) => (
+                    <View
+                      key={stat.label}
+                      style={[
+                        styles.rekapStatCard,
+                        {
+                          backgroundColor: '#F7F1E7',
+                          borderColor: '#C8B995',
+                        },
+                      ]}>
+                      <ThemedText
+                        type="smallBold"
+                        style={[styles.rekapStatValue, { color: theme.primary }]}>
+                        {stat.value}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {stat.label}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.rekapControlGroup}>
+                  <ThemedText type="smallBold" style={styles.rekapControlLabel}>
+                    Pilih Mata Praktikum
                   </ThemedText>
                   <ScrollView
                     horizontal
@@ -1011,8 +1086,8 @@ export default function AsistenJadwalScreen() {
                           backgroundColor:
                             rekapSelectedScheduleId === 'all'
                               ? theme.primary
-                              : theme.backgroundElement,
-                          borderColor: theme.border,
+                              : '#F7F1E7',
+                          borderColor: '#C8B995',
                         },
                       ]}>
                       <ThemedText
@@ -1037,8 +1112,8 @@ export default function AsistenJadwalScreen() {
                             backgroundColor:
                               rekapSelectedScheduleId === schedule.id
                                 ? theme.primary
-                                : theme.backgroundElement,
-                            borderColor: theme.border,
+                                : '#F7F1E7',
+                            borderColor: '#C8B995',
                           },
                         ]}>
                         <ThemedText
@@ -1055,14 +1130,12 @@ export default function AsistenJadwalScreen() {
                     ))}
                   </ScrollView>
 
-                  {/* Praktikan Search */}
                   <View
                     style={[
                       styles.searchBox,
                       {
-                        backgroundColor: theme.backgroundElement,
-                        borderColor: theme.border,
-                        marginTop: Spacing.two,
+                        backgroundColor: '#F7F1E7',
+                        borderColor: '#C8B995',
                       },
                     ]}>
                     <TextInput
@@ -1076,7 +1149,9 @@ export default function AsistenJadwalScreen() {
                       <Pressable
                         onPress={() => setRekapSearchPraktikan('')}
                         style={styles.searchClearButton}>
-                        <ThemedText type="small" themeColor="textSecondary">
+                        <ThemedText
+                          type="smallBold"
+                          style={{ color: theme.primary }}>
                           ✕
                         </ThemedText>
                       </Pressable>
@@ -1085,302 +1160,119 @@ export default function AsistenJadwalScreen() {
                 </View>
               </View>
 
-              {/* Rekap List per Schedule */}
-              <View style={styles.scheduleList}>
-                {schedules
-                  .filter((schedule) =>
-                    rekapSelectedScheduleId === 'all'
-                      ? true
-                      : schedule.id === rekapSelectedScheduleId,
-                  )
-                  .map((schedule) => {
-                    const session = getSessionsForSchedule(schedule.id)[0];
-                    if (!session) return null;
-
-                    const {
-                      attendedUsers,
-                      excusedUsers,
-                      absentUsers,
-                      attendedCount,
-                      excusedCount,
-                      totalStudents,
-                      percentage,
-                    } = getSessionAttendanceData(session);
-
-                    const filteredAttended = attendedUsers.filter((item) => {
-                      if (!rekapSearchPraktikan.trim()) return true;
-                      const q = rekapSearchPraktikan.toLowerCase();
-                      return (
-                        item.user.name.toLowerCase().includes(q) ||
-                        item.user.identityNumber.toLowerCase().includes(q)
-                      );
-                    });
-
-                    const filteredAbsent = absentUsers.filter((user) => {
-                      if (!rekapSearchPraktikan.trim()) return true;
-                      const q = rekapSearchPraktikan.toLowerCase();
-                      return (
-                        user.name.toLowerCase().includes(q) ||
-                        user.identityNumber.toLowerCase().includes(q)
-                      );
-                    });
-                    const filteredExcused = excusedUsers.filter((item) => {
-                      if (!rekapSearchPraktikan.trim()) return true;
-                      const q = rekapSearchPraktikan.toLowerCase();
-                      return (
-                        item.user.name.toLowerCase().includes(q) ||
-                        item.user.identityNumber.toLowerCase().includes(q)
-                      );
-                    });
+              {/* Daftar Rekap per Jadwal */}
+              {visibleRekapRows.length === 0 ? (
+                <ThemedView
+                  type="backgroundElement"
+                  style={[styles.rekapTableEmpty, { borderColor: '#C8B995' }]}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Tidak ada jadwal yang cocok dengan filter.
+                  </ThemedText>
+                </ThemedView>
+              ) : (
+                <View style={styles.rekapList}>
+                  {visibleRekapRows.map((row) => {
+                    const expanded =
+                      expandedRekapScheduleId === row.schedule.id;
 
                     return (
                       <ThemedView
-                        key={schedule.id}
-                        type="backgroundElement"
-                        style={[styles.rekapCard, { borderColor: theme.border }]}>
-                        {/* Rekap Card Header */}
-                        <View style={styles.rekapCardHeader}>
-                          <View style={{ flex: 1, gap: Spacing.half }}>
-                            <ThemedText type="subtitle">
-                              {schedule.praktikum}
+                        key={row.schedule.id}
+                        style={[
+                          styles.rekapCard,
+                          {
+                            backgroundColor: '#F7F1E7',
+                            borderColor: expanded ? theme.primary : '#C8B995',
+                          },
+                        ]}>
+                        <View style={styles.rekapCardHeaderRow}>
+                          <View style={styles.flex}>
+                            <ThemedText type="smallBold" style={styles.rekapCardTitle}>
+                              {row.schedule.praktikum}
                             </ThemedText>
-                            <ThemedText
-                              type="small"
-                              themeColor="textSecondary">
-                              {schedule.kelas} · {schedule.ruang} ·{' '}
-                              {formatDate(schedule.date)} (
-                              {schedule.startTime} - {schedule.endTime} WIB)
+                            <ThemedText type="small" themeColor="textSecondary">
+                              {row.schedule.kelas} · {row.schedule.ruang}
                             </ThemedText>
                           </View>
-                          <SessionStatusBadge status={session.status} />
+                          <SessionStatusBadge status={row.session.status} />
                         </View>
 
-                        {/* Attendance Summary Bar */}
-                        <View
-                          style={[
-                            styles.rekapSummaryBox,
-                            {
-                              backgroundColor: theme.background,
-                              borderColor: theme.border,
-                            },
-                          ]}>
-                          <View style={styles.rekapSummaryTextRow}>
-                            <ThemedText type="smallBold">
-                              {attendedCount} hadir · {excusedCount} izin ·{' '}
-                              {Math.max(0, totalStudents - attendedCount - excusedCount)} belum hadir ({percentage}% hadir)
+                        <View style={styles.rekapCardMetaRow}>
+                          <View style={styles.rekapCardMetaItem}>
+                            <ThemedText type="small" themeColor="textSecondary">
+                              Tanggal
                             </ThemedText>
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={() =>
-                                handleCopyReport(schedule, session)
-                              }
-                              style={({ pressed }) => [
-                                styles.copyMiniButton,
-                                {
-                                  backgroundColor: theme.primary,
-                                },
-                                pressed && styles.pressed,
-                              ]}>
-                              <ThemedText
-                                type="smallBold"
-                                style={{
-                                  color: theme.primaryText,
-                                  fontSize: 11,
-                                }}>
-                                Salin Rekap
-                              </ThemedText>
-                            </Pressable>
+                            <ThemedText type="smallBold">
+                              {formatDate(row.schedule.date)}
+                            </ThemedText>
                           </View>
+                          <View style={styles.rekapCardMetaItem}>
+                            <ThemedText type="small" themeColor="textSecondary">
+                              Hadir
+                            </ThemedText>
+                            <ThemedText
+                              type="smallBold"
+                              style={{ color: theme.primary }}>
+                              {row.attendedCount}/{row.totalStudents} ({row.percentage}%)
+                            </ThemedText>
+                          </View>
+                        </View>
 
+                        <View style={styles.rekapCardFooter}>
                           <View
                             style={[
                               styles.progressBarTrack,
+                              styles.rekapCardProgress,
                               {
-                                backgroundColor: theme.backgroundElement,
-                                borderColor: theme.border,
+                                backgroundColor: '#EDE4D5',
+                                borderColor: '#C8B995',
                               },
                             ]}>
                             <View
                               style={[
                                 styles.progressBarFill,
                                 {
-                                  width: `${percentage}%`,
+                                  width: `${row.percentage}%`,
                                   backgroundColor: theme.primary,
                                 },
                               ]}
                             />
                           </View>
-                        </View>
-
-                        {/* Praktikan List */}
-                        <View style={styles.rekapPraktikanSection}>
-                          <ThemedText
-                            type="smallBold"
-                            style={styles.rekapPraktikanSectionTitle}>
-                            Daftar Mahasiswa & Waktu Kehadiran:
-                          </ThemedText>
-
-                          {filteredAttended.length === 0 &&
-                          filteredExcused.length === 0 &&
-                          filteredAbsent.length === 0 ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Lihat rekap ${row.schedule.praktikum}`}
+                            onPress={() =>
+                              setExpandedRekapScheduleId(
+                                expanded ? null : row.schedule.id,
+                              )
+                            }
+                            style={({ pressed }) => [
+                              styles.detailChip,
+                              {
+                                backgroundColor: expanded
+                                  ? theme.primary
+                                  : '#F7F1E7',
+                                borderColor: '#C8B995',
+                              },
+                              pressed && styles.pressed,
+                            ]}>
                             <ThemedText
-                              type="small"
-                              themeColor="textSecondary"
-                              style={styles.noPraktikanMatch}>
-                              Tidak ada praktikan yang cocok dengan pencarian.
+                              type="smallBold"
+                              style={{
+                                color: expanded
+                                  ? theme.primaryText
+                                  : theme.text,
+                              }}>
+                              {expanded ? 'Tutup' : 'Detail'}
                             </ThemedText>
-                          ) : (
-                            <ScrollView
-                              style={styles.praktikanRowsList}
-                              contentContainerStyle={styles.praktikanRowsContent}
-                              nestedScrollEnabled
-                              showsVerticalScrollIndicator>
-                              {/* Hadir List */}
-                              {filteredAttended.map((item) => (
-                                <View
-                                  key={item.user.id}
-                                  style={[
-                                    styles.praktikanRow,
-                                    {
-                                      backgroundColor: '#F0F6E8',
-                                      borderColor: theme.primary,
-                                    },
-                                  ]}>
-                                  <View
-                                    style={[
-                                      styles.praktikanAvatar,
-                                      {
-                                        backgroundColor: theme.primary,
-                                      },
-                                    ]}>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={{
-                                        color: theme.primaryText,
-                                        fontSize: 12,
-                                      }}>
-                                      {initials(item.user.name)}
-                                    </ThemedText>
-                                  </View>
-
-                                  <View style={styles.praktikanMeta}>
-                                    <ThemedText type="smallBold">
-                                      {item.user.name}
-                                    </ThemedText>
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary">
-                                      {item.user.identityNumber} ·{' '}
-                                      {item.user.program}
-                                    </ThemedText>
-                                  </View>
-
-                                  <View style={styles.praktikanAttendanceStatus}>
-                                    <View
-                                      style={[
-                                        styles.statusChipHadir,
-                                        {
-                                          backgroundColor: theme.primary,
-                                        },
-                                      ]}>
-                                      <ThemedText
-                                        type="smallBold"
-                                        style={{
-                                          color: theme.primaryText,
-                                          fontSize: 11,
-                                        }}>
-                                        ✓ Hadir
-                                      </ThemedText>
-                                    </View>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={styles.timestampText}>
-                                      {formatTimeWithSeconds(item.checkedInAt)}{' '}
-                                      WIB
-                                    </ThemedText>
-                                  </View>
-                                </View>
-                              ))}
-
-                              {filteredExcused.map((item) => (
-                                <View key={item.user.id} style={[styles.praktikanRow, { backgroundColor: '#F8F1D9', borderColor: theme.moss }]}>
-                                  <View style={[styles.praktikanAvatar, { backgroundColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.primaryText, fontSize: 12 }}>{initials(item.user.name)}</ThemedText></View>
-                                  <View style={styles.praktikanMeta}><ThemedText type="smallBold">{item.user.name}</ThemedText><ThemedText type="small" themeColor="textSecondary">{item.user.identityNumber} · {item.user.program}</ThemedText></View>
-                                  <View style={styles.praktikanAttendanceStatus}><View style={[styles.statusChipBelumHadir, { backgroundColor: '#E9E2C8', borderColor: theme.moss }]}><ThemedText type="smallBold" style={{ color: theme.text, fontSize: 11 }}>✓ Izin Disetujui</ThemedText></View><ThemedText type="small" themeColor="textSecondary" style={styles.timestampText}>{item.excusedAt ? `${formatTimeWithSeconds(item.excusedAt)} WIB` : 'Disetujui'}</ThemedText></View>
-                                </View>
-                              ))}
-
-                              {/* Belum Hadir List */}
-                              {filteredAbsent.map((user) => (
-                                <View
-                                  key={user.id}
-                                  style={[
-                                    styles.praktikanRow,
-                                    {
-                                      backgroundColor: theme.background,
-                                      borderColor: theme.border,
-                                    },
-                                  ]}>
-                                  <View
-                                    style={[
-                                      styles.praktikanAvatar,
-                                      {
-                                        backgroundColor: theme.moss,
-                                      },
-                                    ]}>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={{
-                                        color: theme.primaryText,
-                                        fontSize: 12,
-                                      }}>
-                                      {initials(user.name)}
-                                    </ThemedText>
-                                  </View>
-
-                                  <View style={styles.praktikanMeta}>
-                                    <ThemedText type="smallBold">
-                                      {user.name}
-                                    </ThemedText>
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary">
-                                      {user.identityNumber} · {user.program}
-                                    </ThemedText>
-                                  </View>
-
-                                  <View style={styles.praktikanAttendanceStatus}>
-                                    <View
-                                      style={[
-                                        styles.statusChipBelumHadir,
-                                        {
-                                          backgroundColor: '#EAE4D7',
-                                          borderColor: theme.border,
-                                        },
-                                      ]}>
-                                      <ThemedText
-                                        type="small"
-                                        themeColor="textSecondary"
-                                        style={{ fontSize: 11 }}>
-                                        Belum Hadir
-                                      </ThemedText>
-                                    </View>
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary"
-                                      style={styles.timestampText}>
-                                      -
-                                    </ThemedText>
-                                  </View>
-                                </View>
-                              ))}
-                            </ScrollView>
-                          )}
+                          </Pressable>
                         </View>
                       </ThemedView>
                     );
                   })}
-              </View>
+                </View>
+              )}
+
             </View>
           )}
 
@@ -1879,6 +1771,243 @@ export default function AsistenJadwalScreen() {
             </View>
           </Modal>
         </ScrollView>
+
+          {/* Detail Rekap (Modal) */}
+          <Modal
+                visible={!!expandedRekapRow}
+                  transparent
+                  animationType="slide"
+                  onRequestClose={() => setExpandedRekapScheduleId(null)}>
+                  <View style={styles.rekapDetailBackdrop}>
+                    <Pressable
+                      style={StyleSheet.absoluteFill}
+                      onPress={() => setExpandedRekapScheduleId(null)}
+                    />
+
+                    {expandedRekapRow && (
+                      <ThemedView
+                        style={[
+                          styles.rekapDetailSheet,
+                          {
+                            backgroundColor: '#F7F1E7',
+                            borderColor: '#C8B995',
+                            paddingBottom: insets.bottom + Spacing.four,
+                          },
+                        ]}>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Tutup detail rekap"
+                          hitSlop={8}
+                          onPress={() => setExpandedRekapScheduleId(null)}
+                          style={styles.modalHandlePressable}>
+                          <View
+                            style={[
+                              styles.modalHandle,
+                              { backgroundColor: theme.border },
+                            ]}
+                          />
+                        </Pressable>
+
+                        <View style={styles.rekapDetailHeader}>
+                          <View style={styles.flex}>
+                            <ThemedText type="smallBold" style={{ fontSize: 16 }}>
+                              Rekap {expandedRekapRow.schedule.praktikum}
+                            </ThemedText>
+                            <ThemedText type="small" themeColor="textSecondary">
+                              {expandedRekapRow.schedule.kelas} ·{' '}
+                              {expandedRekapRow.schedule.ruang} ·{' '}
+                              {formatDate(expandedRekapRow.schedule.date)}
+                            </ThemedText>
+                          </View>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Tutup rekap"
+                            onPress={() => setExpandedRekapScheduleId(null)}
+                            style={({ pressed }) => [
+                              styles.closeDetailButton,
+                              {
+                                backgroundColor: '#F7F1E7',
+                                borderColor: '#C8B995',
+                              },
+                              pressed && styles.pressed,
+                            ]}>
+                            <ThemedText
+                              type="smallBold"
+                              style={{ color: theme.primary }}>
+                              Tutup
+                            </ThemedText>
+                          </Pressable>
+                        </View>
+
+                        <View style={styles.rekapDetailSummary}>
+                          <ThemedText type="smallBold">
+                            {expandedRekapRow.attendedCount} hadir ·{' '}
+                            {expandedRekapRow.excusedCount} izin ·{' '}
+                            {Math.max(
+                              0,
+                              expandedRekapRow.totalStudents -
+                                expandedRekapRow.attendedCount -
+                                expandedRekapRow.excusedCount,
+                            )}{' '}
+                            belum hadir ({expandedRekapRow.percentage}% hadir)
+                          </ThemedText>
+                          <Pressable
+                            accessibilityRole="button"
+                            onPress={() =>
+                              handleCopyReport(
+                                expandedRekapRow.schedule,
+                                expandedRekapRow.session,
+                              )
+                            }
+                            style={({ pressed }) => [
+                              styles.copyMiniButton,
+                              { backgroundColor: theme.primary },
+                              pressed && styles.pressed,
+                            ]}>
+                            <ThemedText
+                              type="smallBold"
+                              style={{
+                                color: theme.primaryText,
+                                fontSize: 11,
+                              }}>
+                              Salin Rekap
+                            </ThemedText>
+                          </Pressable>
+                        </View>
+
+                        <View
+                          style={[
+                            styles.progressBarTrack,
+                            {
+                              backgroundColor: '#EDE4D5',
+                              borderColor: '#C8B995',
+                            },
+                          ]}>
+                          <View
+                            style={[
+                              styles.progressBarFill,
+                              {
+                                width: `${expandedRekapRow.percentage}%`,
+                                backgroundColor: theme.primary,
+                              },
+                            ]}
+                          />
+                        </View>
+
+                        <ScrollView
+                          style={styles.rekapDetailScroll}
+                          contentContainerStyle={styles.rekapDetailScrollContent}
+                          showsVerticalScrollIndicator>
+                          {expandedRekapRow.attended.length === 0 &&
+                          expandedRekapRow.excused.length === 0 &&
+                          expandedRekapRow.absent.length === 0 ? (
+                            <ThemedText
+                              type="small"
+                              themeColor="textSecondary"
+                              style={styles.noPraktikanMatch}>
+                              Tidak ada praktikan yang cocok dengan pencarian.
+                            </ThemedText>
+                          ) : null}
+
+                          {expandedRekapRow.attended.map((item) => (
+                            <View key={item.user.id} style={styles.rekapDetailRow}>
+                              <View style={styles.rekapDetailRowMeta}>
+                                <ThemedText type="smallBold">
+                                  {item.user.name}
+                                </ThemedText>
+                                <ThemedText
+                                  type="small"
+                                  themeColor="textSecondary">
+                                  {item.user.identityNumber}
+                                </ThemedText>
+                              </View>
+                              <View style={styles.rekapDetailRowStatus}>
+                                <View
+                                  style={[
+                                    styles.statusPill,
+                                    { backgroundColor: theme.primary },
+                                  ]}>
+                                  <ThemedText
+                                    type="small"
+                                    style={{ color: theme.primaryText }}>
+                                    Hadir
+                                  </ThemedText>
+                                </View>
+                                <ThemedText type="small" themeColor="textSecondary">
+                                  {formatTimeWithSeconds(item.checkedInAt)} WIB
+                                </ThemedText>
+                              </View>
+                            </View>
+                          ))}
+
+                          {expandedRekapRow.excused.map((item) => (
+                            <View key={item.user.id} style={styles.rekapDetailRow}>
+                              <View style={styles.rekapDetailRowMeta}>
+                                <ThemedText type="smallBold">
+                                  {item.user.name}
+                                </ThemedText>
+                                <ThemedText
+                                  type="small"
+                                  themeColor="textSecondary">
+                                  {item.user.identityNumber}
+                                </ThemedText>
+                              </View>
+                              <View style={styles.rekapDetailRowStatus}>
+                                <View
+                                  style={[
+                                    styles.statusPill,
+                                    {
+                                      backgroundColor: 'rgba(136, 144, 99, 0.35)',
+                                    },
+                                  ]}>
+                                  <ThemedText
+                                    type="small"
+                                    style={{ color: theme.text }}>
+                                    Izin
+                                  </ThemedText>
+                                </View>
+                                <ThemedText type="small" themeColor="textSecondary">
+                                  {item.excusedAt
+                                    ? `${formatTimeWithSeconds(item.excusedAt)} WIB`
+                                    : 'Disetujui'}
+                                </ThemedText>
+                              </View>
+                            </View>
+                          ))}
+
+                          {expandedRekapRow.absent.map((user) => (
+                            <View key={user.id} style={styles.rekapDetailRow}>
+                              <View style={styles.rekapDetailRowMeta}>
+                                <ThemedText type="smallBold">
+                                  {user.name}
+                                </ThemedText>
+                                <ThemedText
+                                  type="small"
+                                  themeColor="textSecondary">
+                                  {user.identityNumber}
+                                </ThemedText>
+                              </View>
+                              <View style={styles.rekapDetailRowStatus}>
+                                <View
+                                  style={[
+                                    styles.statusPill,
+                                    { backgroundColor: 'rgba(53, 64, 36, 0.15)' },
+                                  ]}>
+                                  <ThemedText
+                                    type="small"
+                                    themeColor="textSecondary">
+                                    Belum
+                                  </ThemedText>
+                                </View>
+                              </View>
+                            </View>
+                          ))}
+                        </ScrollView>
+                      </ThemedView>
+                    )}
+                  </View>
+                </Modal>
+
       </SafeAreaView>
     </ThemedView>
   );
@@ -2311,7 +2440,187 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   rekapHeaderCard: {
+    gap: Spacing.three,
+    padding: Spacing.four,
+    borderRadius: 18,
+    borderWidth: 1.5,
+  },
+  flex: {
+    flex: 1,
+  },
+  rekapTitle: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  rekapStatRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  rekapStatCard: {
+    flexGrow: 1,
+    flexBasis: 90,
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: Spacing.two,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  rekapStatValue: {
+    fontSize: 20,
+    lineHeight: 26,
+  },
+  rekapControlGroup: {
     gap: Spacing.one,
+  },
+  rekapControlLabel: {
+    fontSize: 13,
+  },
+  rekapList: {
+    gap: Spacing.two,
+  },
+  rekapCardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+  },
+  rekapCardTitle: {
+    fontSize: 15,
+  },
+  rekapCardMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.three,
+  },
+  rekapCardMetaItem: {
+    gap: 2,
+  },
+  rekapCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  rekapCardProgress: {
+    flex: 1,
+  },
+  rekapTableCard: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: '#C8B995',
+    overflow: 'hidden',
+    backgroundColor: '#F7F1E7',
+  },
+  rekapTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(200, 185, 149, 0.6)',
+  },
+  rekapTableHeaderRow: {
+    backgroundColor: 'rgba(136, 144, 99, 0.3)',
+  },
+  rekapTableRowZebra: {
+    backgroundColor: 'rgba(136, 144, 99, 0.08)',
+  },
+  rekapCellSchedule: {
+    flex: 1,
+    gap: 2,
+  },
+  rekapCellDate: {
+    width: 116,
+  },
+  rekapCellStatus: {
+    width: 92,
+  },
+  rekapCellCount: {
+    width: 64,
+    gap: 2,
+  },
+  rekapCellAction: {
+    width: 76,
+    alignItems: 'flex-end',
+  },
+  rekapTableEmpty: {
+    padding: Spacing.four,
+    borderRadius: 16,
+    borderWidth: 1.5,
+  },
+  rekapDetailCard: {
+    padding: Spacing.four,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    gap: Spacing.three,
+  },
+  rekapDetailBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  rekapDetailSheet: {
+    maxHeight: '88%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1.5,
+    borderBottomWidth: 0,
+    paddingTop: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    gap: Spacing.two,
+  },
+  rekapDetailScroll: {
+    flexShrink: 1,
+  },
+  rekapDetailScrollContent: {
+    gap: Spacing.one,
+  },
+  rekapDetailHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+  },
+  rekapDetailSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  rekapDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    paddingVertical: Spacing.two,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(200, 185, 149, 0.5)',
+  },
+  rekapDetailRowMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  rekapDetailRowStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  statusPill: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  detailChip: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  closeDetailButton: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   rekapFilterSection: {
     marginTop: Spacing.two,
