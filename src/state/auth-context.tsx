@@ -20,6 +20,7 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 import { getFirebaseAuth, getFirebaseConfigurationError, getFirebaseDb } from '@/services/firebase';
+import { unregisterRegisteredPushToken } from '@/services/push-notifications';
 import type { User } from '@/types';
 
 type RegistrationDetails = {
@@ -284,6 +285,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    try {
+      await unregisterRegisteredPushToken();
+    } catch (error) {
+      console.warn(
+        'Token notifikasi tidak berhasil dihapus sebelum keluar:',
+        error instanceof Error ? error.message : error,
+      );
+    }
     await firebaseSignOut(getFirebaseAuth());
     setCurrentUser(null);
     setError(null);

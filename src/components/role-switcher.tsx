@@ -54,7 +54,10 @@ export function RoleSwitcher() {
             <ThemedText style={styles.greetingSmall}>
               Halo {roleText},
             </ThemedText>
-            <ThemedText style={styles.greetingName}>
+            <ThemedText
+              numberOfLines={2}
+              ellipsizeMode="tail"
+              style={styles.greetingName}>
               {currentUser.name}
             </ThemedText>
           </View>
@@ -140,6 +143,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     paddingHorizontal: 6,
     paddingTop: 8,
     paddingBottom: 16,
@@ -148,6 +152,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
+    minWidth: 0,
   },
   cloudIconBox: {
     width: 32,
@@ -155,9 +161,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     opacity: 0.9,
+    flexShrink: 0,
   },
   greetingMeta: {
     gap: 1,
+    flex: 1,
+    minWidth: 0,
   },
   greetingSmall: {
     fontSize: 13,
@@ -170,6 +179,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontFamily: Fonts.bold,
     letterSpacing: 0.3,
+    flexShrink: 1,
   },
   menuPillButton: {
     width: 44,
@@ -180,6 +190,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
     ...(Platform.OS === 'web'
       ? ({
           backdropFilter: 'blur(12px)',

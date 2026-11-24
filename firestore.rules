@@ -106,6 +106,15 @@ service cloud.firestore {
         && request.resource.data.program is string;
       allow read: if signedIn() && (request.auth.uid == uid || isAssistant());
       allow update, delete: if false;
+
+      match /pushTokens/{tokenId} {
+        allow read, delete: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt'])
+          && request.resource.data.token is string
+          && request.resource.data.platform in ['ios', 'android'];
+      }
     }
 
     match /classes/{classId} {
