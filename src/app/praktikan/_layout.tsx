@@ -1,18 +1,62 @@
 import { Redirect, Stack } from 'expo-router';
-import { ActivityIndicator } from 'react-native';
+import { ActivityIndicator, View, StyleSheet } from 'react-native';
 
+import { FloatingNavBar, type TabItem } from '@/components/floating-nav-bar';
 import { useAuth } from '@/state/auth-context';
+
+const praktikanTabs: TabItem[] = [
+  {
+    key: 'jadwal',
+    label: 'Jadwal',
+    iconName: 'calendar-outline',
+    route: '/praktikan/jadwal',
+  },
+  {
+    key: 'izin',
+    label: 'Izin',
+    iconName: 'document-text',
+    route: '/praktikan/izin',
+    isCenter: true,
+  },
+  {
+    key: 'riwayat',
+    label: 'Presensi',
+    iconName: 'time-outline',
+    route: '/praktikan/jadwal',
+  },
+];
 
 export default function PraktikanLayout() {
   const { currentUser, loading } = useAuth();
 
   if (loading) {
-    return <ActivityIndicator />;
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#354024" />
+      </View>
+    );
   }
 
   if (!currentUser || currentUser.role !== 'praktikan') {
     return <Redirect href="/" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <View style={styles.container}>
+      <Stack screenOptions={{ headerShown: false }} />
+      <FloatingNavBar tabs={praktikanTabs} />
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E5D7C4',
+  },
+});

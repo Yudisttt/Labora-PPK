@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,13 +11,14 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SessionStatusBadge } from '@/components/session-status-badge';
+import { DashboardCapsule } from '@/components/dashboard-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { useApp } from '@/state/app-context';
-import { classifyPermissionReason } from '@/services/permission-sentiment';
 import { submitPermissionRequest, subscribeToPermissionRequestsForUser } from '@/services/permission-requests';
+import { classifyPermissionReason } from '@/services/permission-sentiment';
+import { useApp } from '@/state/app-context';
 import type { PermissionAiPrediction, PermissionRequest, Session } from '@/types';
 import { formatDate, formatDateTime } from '@/utils/format';
 
@@ -181,12 +183,18 @@ export default function PraktikanIzinScreen() {
   }
 
   return (
-    <ThemedView style={styles.screen}>
+    <ThemedView
+      style={[
+        styles.screen,
+        {
+          backgroundImage: `linear-gradient(180deg, ${theme.glassInput} 0%, ${theme.background} 58%, ${theme.primary} 100%)`,
+        },
+      ]}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: insets.bottom + Spacing.five },
+            { paddingBottom: insets.bottom + 95 },
           ]}
           keyboardShouldPersistTaps="handled"
         >
@@ -200,17 +208,22 @@ export default function PraktikanIzinScreen() {
             </ThemedText>
           </Pressable>
 
-          <View style={styles.header}>
-            <ThemedText type="subtitle">Pengajuan Izin</ThemedText>
-            <ThemedText themeColor="textSecondary">
-              Pilih sesi praktikum dan jelaskan alasan ketidakhadiranmu.
-            </ThemedText>
-          </View>
+          <DashboardCapsule
+            title="Pengajuan Izin"
+            subtitle="Pilih sesi praktikum dan jelaskan alasan ketidakhadiranmu."
+          />
 
           <View
             style={[
               styles.formCard,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+              {
+                backgroundColor: 'rgba(247, 241, 231, 0.62)',
+                backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(247, 241, 231, 0.72) 100%)',
+                borderColor: theme.glassBorderHighlight,
+                ...(Platform.OS === 'web'
+                  ? ({ backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' } as object)
+                  : {}),
+              },
             ]}
           >
             <ThemedText type="smallBold">Pilih sesi</ThemedText>
@@ -234,9 +247,12 @@ export default function PraktikanIzinScreen() {
                         styles.sessionOption,
                         {
                           backgroundColor: selected
-                            ? theme.backgroundSelected
-                            : theme.background,
-                          borderColor: selected ? theme.primary : theme.border,
+                            ? 'rgba(136, 144, 99, 0.24)'
+                            : 'rgba(255, 255, 255, 0.42)',
+                          backgroundImage: selected
+                            ? `linear-gradient(145deg, rgba(255, 255, 255, 0.82) 0%, rgba(136, 144, 99, 0.24) 100%)`
+                            : 'linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(237, 228, 213, 0.5) 100%)',
+                          borderColor: selected ? theme.glassBorderHighlight : 'rgba(255, 255, 255, 0.82)',
                         },
                         pressed && styles.pressed,
                       ]}
@@ -278,8 +294,9 @@ export default function PraktikanIzinScreen() {
                 styles.reasonInput,
                 {
                   color: theme.text,
-                  backgroundColor: theme.background,
-                  borderColor: theme.border,
+                  backgroundColor: 'rgba(247, 241, 231, 0.58)',
+                  backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.8) 0%, rgba(237, 228, 213, 0.52) 100%)',
+                  borderColor: theme.glassBorderHighlight,
                 },
               ]}
             />
@@ -344,7 +361,11 @@ export default function PraktikanIzinScreen() {
               <View
                 style={[
                   styles.emptyState,
-                  { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                  {
+                    backgroundColor: 'rgba(247, 241, 231, 0.62)',
+                    backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.88) 0%, rgba(237, 228, 213, 0.68) 100%)',
+                    borderColor: theme.glassBorderHighlight,
+                  },
                 ]}
               >
                 <ThemedText type="smallBold">Belum ada pengajuan izin</ThemedText>
@@ -364,7 +385,11 @@ export default function PraktikanIzinScreen() {
                       key={request.id}
                       style={[
                         styles.requestCard,
-                        { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                        {
+                          backgroundColor: 'rgba(247, 241, 231, 0.62)',
+                          backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.88) 0%, rgba(237, 228, 213, 0.68) 100%)',
+                          borderColor: theme.glassBorderHighlight,
+                        },
                       ]}
                     >
                       <View style={styles.requestHeader}>
@@ -423,7 +448,6 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
   },
   backButton: { alignSelf: 'flex-start', paddingVertical: Spacing.one },
-  header: { gap: Spacing.one },
   formCard: {
     padding: Spacing.three,
     gap: Spacing.two,

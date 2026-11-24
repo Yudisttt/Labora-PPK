@@ -10,16 +10,17 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 
-import { RoleSwitcher } from '@/components/role-switcher';
 import { SessionStatusBadge } from '@/components/session-status-badge';
+import { DashboardCapsule } from '@/components/dashboard-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Fonts, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/state/app-context';
 import type {
@@ -53,13 +54,11 @@ export default function AsistenJadwalScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const {
-    currentUser,
     users,
     schedules,
     attendance,
     openSession,
     closeSession,
-    attendanceError,
     getUser,
     getSessionsForSchedule,
   } = useApp();
@@ -67,7 +66,6 @@ export default function AsistenJadwalScreen() {
   // Navigation & Filter States
   const [activeTab, setActiveTab] = useState<TabMode>('jadwal');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [onlyMySchedules, setOnlyMySchedules] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Modal Detail States
@@ -100,9 +98,6 @@ export default function AsistenJadwalScreen() {
   ).length;
   const scheduledSessionsCount =
     schedules.length - openSessionsCount - closedSessionsCount;
-  const attendancePermissionDenied =
-    attendanceError?.includes('permission-denied') ?? false;
-
   function showToast(message: string) {
     setFeedbackToast(message);
     setTimeout(() => {
@@ -141,10 +136,6 @@ export default function AsistenJadwalScreen() {
         return false;
       }
 
-      if (onlyMySchedules && currentUser && schedule.assistantId !== currentUser.id) {
-        return false;
-      }
-
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchesPraktikum = schedule.praktikum
@@ -160,9 +151,7 @@ export default function AsistenJadwalScreen() {
       return true;
     });
   }, [
-    currentUser,
     getSessionsForSchedule,
-    onlyMySchedules,
     schedules,
     searchQuery,
     statusFilter,
@@ -401,15 +390,37 @@ export default function AsistenJadwalScreen() {
     ? getSessionsForSchedule(selectedSchedule.id)[0]
     : null;
 
+  const dashboardShortcuts: {
+    label: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    onPress: () => void;
+  }[] = [
+    { label: 'Perizinan', icon: 'document-text-outline', onPress: () => router.push('/asisten/izin') },
+    { label: 'Jadwal', icon: 'calendar-outline', onPress: () => router.push('/asisten/kelola-jadwal') },
+    { label: 'Kelola Data', icon: 'albums-outline', onPress: () => router.push('/asisten/kelola-data') },
+    { label: 'Peta', icon: 'map-outline', onPress: () => router.push('/asisten/peta') },
+    { label: 'Presensi', icon: 'finger-print-outline', onPress: () => router.push('/asisten/presensi') },
+    {
+      label: activeTab === 'rekap' ? 'Kembali ke Sesi' : 'Rekap Presensi',
+      icon: activeTab === 'rekap' ? 'calendar-outline' : 'stats-chart-outline',
+      onPress: () => setActiveTab((tab) => tab === 'jadwal' ? 'rekap' : 'jadwal'),
+    },
+  ];
+
+  const filterChipSurface = (selected: boolean) => ({
+    backgroundColor: selected ? theme.primary : theme.glassGreenLight,
+    backgroundImage: selected
+      ? `linear-gradient(145deg, ${theme.moss} 0%, ${theme.primary} 100%)`
+      : `linear-gradient(145deg, ${theme.glassCard} 0%, ${theme.glassGreenSheen} 38%, ${theme.glassGreenLight} 100%)`,
+    borderColor: selected ? theme.glassBorderHighlight : theme.glassBorder,
+  });
+
   return (
     <ThemedView style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled">
-          {/* Role Switcher */}
-          <RoleSwitcher />
-
           {/* Feedback Toast */}
           {feedbackToast ? (
             <View
@@ -426,321 +437,41 @@ export default function AsistenJadwalScreen() {
             </View>
           ) : null}
 
-          {/* Tinted Green Glass Header Portal Asisten */}
-          <View
-            style={[
-              styles.headerGlassCard,
-              {
-                backgroundColor: theme.primary,
-                borderColor: theme.primary,
-              },
-            ]}>
-            <View style={styles.headerBadge}>
-              <ThemedText
-                type="smallBold"
-                style={{ color: '#FFFFFF', letterSpacing: 1.2, fontSize: 11, fontWeight: '700' }}>
-                PORTAL ASISTEN LABORATORIUM
-              </ThemedText>
-            </View>
-            <ThemedText type="subtitle" style={[styles.headerTitle, { color: '#FFFFFF', fontSize: 28, lineHeight: 36, fontWeight: '700' }]}>
-              Halo, {currentUser?.name ?? "Asisten Lab"}
-            </ThemedText>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/asisten/izin' as Parameters<typeof router.push>[0])}
-              style={({ pressed }) => [
-                styles.permissionRequestsButton,
-                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-                pressed && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                Periksa pengajuan izin
-              </ThemedText>
-            </Pressable>
-            <View style={styles.headerUserPill}>
-              <ThemedText style={{ color: '#FFFFFF', fontSize: 13, opacity: 0.95 }}>
-                Kelola sesi praktikum dan pantau kehadiran mahasiswa
-              </ThemedText>
-            </View>
-          </View>
+          {/* Top Big Capsule Container Asisten (Persis Desain Figma) */}
+          <DashboardCapsule
+            title="Kelola Data"
+            subtitle="Kelola sesi dan presensimu hari ini"
+          />
 
-          {attendanceError ? (
-            <View
-              style={[
-                styles.attendanceErrorBanner,
-                { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
-              ]}>
-              <ThemedText type="smallBold" style={{ color: theme.danger }}>
-                Rekap presensi gagal dimuat
-              </ThemedText>
-              <ThemedText type="small" style={{ color: theme.danger }}>
-                {attendancePermissionDenied
-                  ? 'Firebase menolak akses baca attendance untuk akun asisten. Publikasikan firestore.rules terbaru di project labora-89bf3.'
-                  : 'Periksa koneksi Firebase lalu muat ulang halaman.'}
-              </ThemedText>
-            </View>
-          ) : null}
-
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/asisten/kelola-data')}
-            style={({ pressed }) => [
-              styles.manageDataButton,
-              {
-                backgroundColor: theme.glassCard,
-                borderColor: theme.glassBorder,
-              },
-              pressed && styles.pressed,
-            ]}>
-            <ThemedText
-              type="smallBold"
-              style={[styles.manageDataButtonText, { color: theme.primary }]}>
-              Kelola kelas, peserta, dan jadwal praktikum
-            </ThemedText>
-            <ThemedText
-              type="smallBold"
-              style={[styles.manageDataButtonArrow, { color: theme.primary }]}>
-              →
-            </ThemedText>
-          </Pressable>
-
-          {/* Stat Cards Row (SRS-04) - Tinted Moss Glass */}
-          <View style={styles.statsRow}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setStatusFilter('all')}
-              style={({ pressed }) => [
-                styles.statCard,
-                {
-                  backgroundColor:
-                    statusFilter === 'all'
-                      ? theme.primary
-                      : theme.glassCard,
-                  borderColor:
-                    statusFilter === 'all'
-                      ? theme.primary
-                      : theme.border,
-                },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText
-                type="subtitle"
-                style={[
-                  styles.statValue,
+          <View style={styles.shortcutGrid}>
+            {dashboardShortcuts.map((shortcut) => (
+              <Pressable
+                key={shortcut.label}
+                accessibilityRole="button"
+                onPress={shortcut.onPress}
+                style={({ pressed }) => [
+                  styles.shortcutTile,
                   {
-                    color:
-                      statusFilter === 'all'
-                        ? theme.primaryText
-                        : theme.primary,
+                    backgroundColor: theme.glassGreenLight,
+                    backgroundImage: `linear-gradient(145deg, ${theme.glassBorderHighlight} 0%, ${theme.glassGreenSheen} 32%, ${theme.glassGreenLight} 100%)`,
+                    borderColor: theme.glassBorderHighlight,
+                    shadowColor: theme.primary,
                   },
+                  pressed && styles.pressed,
                 ]}>
-                {schedules.length}
-              </ThemedText>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    statusFilter === 'all'
-                      ? theme.primaryText
-                      : theme.textSecondary,
-                  fontSize: 11,
-                }}>
-                Semua Jadwal
-              </ThemedText>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setStatusFilter('open')}
-              style={({ pressed }) => [
-                styles.statCard,
-                {
-                  backgroundColor:
-                    statusFilter === 'open'
-                      ? theme.primary
-                      : theme.glassCard,
-                  borderColor:
-                    statusFilter === 'open'
-                      ? theme.primary
-                      : theme.border,
-                },
-                pressed && styles.pressed,
-              ]}>
-              <View style={styles.statValueRow}>
+                <Ionicons
+                  name={shortcut.icon}
+                  size={23}
+                  color={theme.primary}
+                />
                 <ThemedText
-                  type="subtitle"
-                  style={[
-                    styles.statValue,
-                    {
-                      color:
-                        statusFilter === 'open'
-                          ? theme.primaryText
-                          : theme.primary,
-                    },
-                  ]}>
-                  {openSessionsCount}
+                  type="smallBold"
+                  numberOfLines={2}
+                  style={{ color: theme.text, textAlign: 'center' }}>
+                  {shortcut.label}
                 </ThemedText>
-                {openSessionsCount > 0 && (
-                  <View style={styles.pulseDot} />
-                )}
-              </View>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    statusFilter === 'open'
-                      ? theme.primaryText
-                      : theme.textSecondary,
-                  fontSize: 11,
-                }}>
-                Sesi Dibuka
-              </ThemedText>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setStatusFilter('scheduled')}
-              style={({ pressed }) => [
-                styles.statCard,
-                {
-                  backgroundColor:
-                    statusFilter === 'scheduled'
-                      ? theme.primary
-                      : theme.glassCard,
-                  borderColor:
-                    statusFilter === 'scheduled'
-                      ? theme.primary
-                      : theme.border,
-                },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText
-                type="subtitle"
-                style={[
-                  styles.statValue,
-                  {
-                    color:
-                      statusFilter === 'scheduled'
-                        ? theme.primaryText
-                        : theme.primary,
-                  },
-                ]}>
-                {scheduledSessionsCount}
-              </ThemedText>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    statusFilter === 'scheduled'
-                      ? theme.primaryText
-                      : theme.textSecondary,
-                  fontSize: 11,
-                }}>
-                Terjadwal
-              </ThemedText>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setStatusFilter('closed')}
-              style={({ pressed }) => [
-                styles.statCard,
-                {
-                  backgroundColor:
-                    statusFilter === 'closed'
-                      ? theme.primary
-                      : theme.glassCard,
-                  borderColor:
-                    statusFilter === 'closed'
-                      ? theme.primary
-                      : theme.border,
-                },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText
-                type="subtitle"
-                style={[
-                  styles.statValue,
-                  {
-                    color:
-                      statusFilter === 'closed'
-                        ? theme.primaryText
-                        : theme.primary,
-                  },
-                ]}>
-                {closedSessionsCount}
-              </ThemedText>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    statusFilter === 'closed'
-                      ? theme.primaryText
-                      : theme.textSecondary,
-                  fontSize: 11,
-                }}>
-                Ditutup
-              </ThemedText>
-            </Pressable>
-          </View>
-
-          {/* Main Navigation Tabs */}
-          <View
-            style={[
-              styles.tabNavContainer,
-              {
-                backgroundColor: theme.glassCard,
-                borderColor: theme.border,
-              },
-            ]}>
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: activeTab === 'jadwal' }}
-              onPress={() => setActiveTab('jadwal')}
-              style={({ pressed }) => [
-                styles.tabNavButton,
-                {
-                  backgroundColor:
-                    activeTab === 'jadwal' ? theme.primary : 'transparent',
-                },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    activeTab === 'jadwal'
-                      ? theme.primaryText
-                      : theme.text,
-                }}>
-                Jadwal & Sesi Praktikum
-              </ThemedText>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="tab"
-              accessibilityState={{ selected: activeTab === 'rekap' }}
-              onPress={() => setActiveTab('rekap')}
-              style={({ pressed }) => [
-                styles.tabNavButton,
-                {
-                  backgroundColor:
-                    activeTab === 'rekap' ? theme.primary : 'transparent',
-                },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText
-                type="smallBold"
-                style={{
-                  color:
-                    activeTab === 'rekap'
-                      ? theme.primaryText
-                      : theme.text,
-                }}>
-                Rekap Presensi Mahasiswa
-              </ThemedText>
-            </Pressable>
+              </Pressable>
+            ))}
           </View>
 
           {/* ============================================================== */}
@@ -777,24 +508,21 @@ export default function AsistenJadwalScreen() {
                   )}
                 </View>
 
-                {/* Filter Chips & PJ Toggle */}
-                <View style={styles.filterRow}>
-                  <View style={styles.filterChipsScroll}>
-                    <View style={styles.filterChipsContainer}>
+                {/* Status Filters */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.filterChipsScroll}
+                  contentContainerStyle={styles.filterChipsContainer}>
                     <Pressable
                       onPress={() => setStatusFilter('all')}
                       style={[
                         styles.chip,
-                        {
-                          backgroundColor:
-                            statusFilter === 'all'
-                              ? theme.primary
-                              : theme.backgroundElement,
-                          borderColor: theme.border,
-                        },
+                        filterChipSurface(statusFilter === 'all'),
                       ]}>
                       <ThemedText
                         type="smallBold"
+                        numberOfLines={1}
                         style={{
                           color:
                             statusFilter === 'all'
@@ -809,16 +537,11 @@ export default function AsistenJadwalScreen() {
                       onPress={() => setStatusFilter('open')}
                       style={[
                         styles.chip,
-                        {
-                          backgroundColor:
-                            statusFilter === 'open'
-                              ? theme.primary
-                              : theme.backgroundElement,
-                          borderColor: theme.border,
-                        },
+                        filterChipSurface(statusFilter === 'open'),
                       ]}>
                       <ThemedText
                         type="smallBold"
+                        numberOfLines={1}
                         style={{
                           color:
                             statusFilter === 'open'
@@ -833,16 +556,11 @@ export default function AsistenJadwalScreen() {
                       onPress={() => setStatusFilter('scheduled')}
                       style={[
                         styles.chip,
-                        {
-                          backgroundColor:
-                            statusFilter === 'scheduled'
-                              ? theme.primary
-                              : theme.backgroundElement,
-                          borderColor: theme.border,
-                        },
+                        filterChipSurface(statusFilter === 'scheduled'),
                       ]}>
                       <ThemedText
                         type="smallBold"
+                        numberOfLines={1}
                         style={{
                           color:
                             statusFilter === 'scheduled'
@@ -857,16 +575,11 @@ export default function AsistenJadwalScreen() {
                       onPress={() => setStatusFilter('closed')}
                       style={[
                         styles.chip,
-                        {
-                          backgroundColor:
-                            statusFilter === 'closed'
-                              ? theme.primary
-                              : theme.backgroundElement,
-                          borderColor: theme.border,
-                        },
+                        filterChipSurface(statusFilter === 'closed'),
                       ]}>
                       <ThemedText
                         type="smallBold"
+                        numberOfLines={1}
                         style={{
                           color:
                             statusFilter === 'closed'
@@ -876,33 +589,7 @@ export default function AsistenJadwalScreen() {
                         Ditutup ({closedSessionsCount})
                       </ThemedText>
                     </Pressable>
-                    </View>
-                  </View>
-
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: onlyMySchedules }}
-                    onPress={() => setOnlyMySchedules((prev) => !prev)}
-                    style={[
-                      styles.mySchedulesToggle,
-                      {
-                        backgroundColor: onlyMySchedules
-                          ? theme.primary
-                          : theme.backgroundElement,
-                        borderColor: theme.border,
-                      },
-                    ]}>
-                    <ThemedText
-                      type="smallBold"
-                      style={{
-                        color: onlyMySchedules
-                          ? theme.primaryText
-                          : theme.text,
-                      }}>
-                      {onlyMySchedules ? '✓ Jadwal Saya' : 'Jadwal Saya'}
-                    </ThemedText>
-                  </Pressable>
-                </View>
+                </ScrollView>
               </View>
 
               {/* Schedules List */}
@@ -921,13 +608,10 @@ export default function AsistenJadwalScreen() {
                       ? 'Tidak ada jadwal yang cocok dengan kata kunci pencarian.'
                       : 'Belum ada sesi praktikum yang sesuai dengan filter yang dipilih.'}
                   </ThemedText>
-                  {(statusFilter !== 'all' ||
-                    onlyMySchedules ||
-                    searchQuery) && (
+                  {(statusFilter !== 'all' || searchQuery) && (
                     <Pressable
                       onPress={() => {
                         setStatusFilter('all');
-                        setOnlyMySchedules(false);
                         setSearchQuery('');
                       }}
                       style={[
@@ -972,13 +656,11 @@ export default function AsistenJadwalScreen() {
                     return (
                       <ThemedView
                         key={schedule.id}
-                        type="backgroundElement"
+                        type="glassCard"
                         style={[
                           styles.scheduleCard,
                           {
-                            borderColor: isOpen
-                              ? theme.primary
-                              : theme.border,
+                            borderColor: isOpen ? theme.moss : theme.glassBorder,
                           },
                           isOpen && styles.scheduleCardActive,
                         ]}>
@@ -1009,8 +691,8 @@ export default function AsistenJadwalScreen() {
                           style={[
                             styles.scheduleInfoBox,
                             {
-                              backgroundColor: theme.background,
-                              borderColor: theme.border,
+                              backgroundColor: theme.glassCard,
+                              borderColor: theme.glassBorder,
                             },
                           ]}>
                           <View style={styles.infoCol}>
@@ -1059,11 +741,9 @@ export default function AsistenJadwalScreen() {
                           style={[
                             styles.sessionStatusBanner,
                             {
-                              backgroundColor: isOpen
-                                ? '#E8F0DC'
-                                : isClosed
-                                  ? '#F8EAEA'
-                                  : '#F2EADB',
+                              backgroundColor: isClosed
+                                ? theme.dangerSoft
+                                : theme.glassInput,
                               borderColor: isOpen
                                 ? theme.primary
                                 : isClosed
@@ -2213,71 +1893,165 @@ const styles = StyleSheet.create({
   },
   content: {
     width: '100%',
-    maxWidth: MaxContentWidth,
+    maxWidth: 480,
     alignSelf: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.four,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    paddingBottom: 110,
     gap: Spacing.four,
   },
-  headerGlassCard: {
-    padding: Spacing.four,
-    borderRadius: 24,
-    borderWidth: 1.5,
+  shortcutGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    width: '100%',
+    maxWidth: 360,
+    justifyContent: 'space-between',
+    alignSelf: 'center',
     gap: Spacing.two,
   },
-  headerUserPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: '#889063',
+  shortcutTile: {
+    position: 'relative',
+    width: '30%',
+    flexBasis: '30%',
+    flexGrow: 0,
+    aspectRatio: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    padding: Spacing.three,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#AAB18B',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 3,
   },
-  manageDataButton: {
+  topBigCapsule: {
+    backgroundColor: '#354024',
+    borderRadius: 36,
+    paddingHorizontal: Spacing.four,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.five,
+    gap: Spacing.three,
+    shadowColor: '#1A2111',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  innerTitleBox: {
+    backgroundColor: '#27301B',
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+    paddingVertical: Spacing.four,
+    paddingHorizontal: Spacing.four,
+    gap: 4,
+  },
+  innerBoxTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: Fonts.bold,
+  },
+  innerBoxSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontFamily: Fonts.regular,
+  },
+  actionPillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  actionPillButton: {
+    backgroundColor: '#27301B',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 999,
+  },
+  actionPillText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+    fontFamily: Fonts.bold,
+  },
+  pillStatsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    minHeight: 48,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: 16,
-    borderWidth: 1,
     gap: Spacing.two,
+    marginTop: 4,
   },
-  manageDataButtonText: {
+  ovalStatPill: {
     flex: 1,
+    backgroundColor: '#445130',
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.one,
+    gap: 2,
   },
-  manageDataButtonArrow: {
-    fontSize: 18,
+  ovalStatPillActive: {
+    backgroundColor: '#27301B',
+    borderColor: 'rgba(255, 255, 255, 0.45)',
   },
-  header: {
-    gap: Spacing.half,
-  },
-  headerBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.half,
-    borderRadius: 999,
-    backgroundColor: '#889063',
-    borderWidth: 1,
-    borderColor: '#AAB18B',
-  },
-  headerTitle: {
+  ovalStatNumber: {
     fontSize: 22,
-    lineHeight: 28,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: Fonts.bold,
   },
-  headerSubtitle: {
+  ovalStatLabel: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontFamily: Fonts.medium,
+    textAlign: 'center',
+  },
+  asymmetricTabsWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingVertical: 4,
+  },
+  asymTabPill: {
+    paddingVertical: 12,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  asymTabActive: {
+    backgroundColor: '#354024',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderBottomRightRadius: 24,
+    borderBottomLeftRadius: 6,
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  asymTabInactive: {
+    backgroundColor: 'transparent',
+  },
+  asymTabText: {
     fontSize: 14,
-    lineHeight: 20,
+    fontFamily: Fonts.bold,
   },
-  permissionRequestsButton: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    marginTop: Spacing.two,
+  asymTabTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  asymTabTextInactive: {
+    color: '#4C3D19',
+    fontWeight: '500',
   },
   feedbackToast: {
     paddingVertical: Spacing.two,
@@ -2367,35 +2141,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.one,
     paddingVertical: Spacing.half,
   },
-  filterRow: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    gap: Spacing.two,
-  },
   filterChipsScroll: {
     width: '100%',
+    flexGrow: 0,
   },
   filterChipsContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
     gap: Spacing.one,
     paddingVertical: Spacing.half,
   },
   chip: {
-    paddingVertical: 6,
-    paddingHorizontal: Spacing.three,
-    borderRadius: 999,
-    borderWidth: 1.5,
-  },
-  mySchedulesToggle: {
-    alignSelf: 'flex-start',
+    minHeight: 34,
     flexShrink: 0,
-    minHeight: 44,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: Spacing.three,
-    borderRadius: 999,
-    borderWidth: 1.5,
+    paddingHorizontal: Spacing.two + 4,
+    borderRadius: 15,
+    borderWidth: 1.2,
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 1,
   },
   emptyContainer: {
     padding: Spacing.five,
@@ -2422,9 +2191,17 @@ const styles = StyleSheet.create({
   },
   scheduleCard: {
     padding: Spacing.four,
-    borderRadius: 22,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderBottomRightRadius: 28,
+    borderBottomLeftRadius: 24,
     borderWidth: 1.5,
     gap: Spacing.three,
+    shadowColor: '#4C3D19',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 2,
   },
   scheduleCardActive: {
     borderWidth: 2,

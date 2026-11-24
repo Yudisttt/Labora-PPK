@@ -12,14 +12,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { RoleSwitcher } from '@/components/role-switcher';
+import {
+  DashboardCapsule,
+  DashboardTabs,
+} from '@/components/dashboard-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
   addParticipant,
-  createClassWithSchedule,
+  createClass,
+  createSeriesMeeting,
+  createSchedule,
+  createWeeklyScheduleSeries,
   deleteClass,
   deleteSchedule,
   listenClasses,
@@ -27,8 +33,10 @@ import {
   listenPraktikanProfiles,
   listenSchedules,
   removeParticipant,
+  rescheduleMeeting,
   updateClass,
   updateSchedule,
+  endScheduleSeries,
   type ClassParticipant,
   type PracticumClass,
   type PracticumSchedule,
@@ -43,10 +51,11 @@ import {
   type PracticumTimeSlot,
 } from '@/utils/practicum-time-slots';
 
-type DataTab = 'classes' | 'participants';
+type DataTab = 'labs' | 'schedules' | 'meetings' | 'participants';
 type DeleteTarget =
   | { type: 'class'; id: string; label: string }
   | { type: 'schedule'; id: string; label: string }
+  | { type: 'series'; id: string; label: string }
   | {
     type: 'participant';
     id: string;
@@ -71,7 +80,9 @@ function todayKey(): string {
 }
 
 const TABS: { id: DataTab; label: string }[] = [
-  { id: 'classes', label: 'Kelas & Jadwal' },
+  { id: 'labs', label: 'Lab' },
+  { id: 'schedules', label: 'Jadwal' },
+  { id: 'meetings', label: 'Pertemuan' },
   { id: 'participants', label: 'Peserta' },
 ];
 
@@ -94,7 +105,7 @@ const MONTH_NAMES = [
 export default function ManagePracticumDataScreen() {
   const theme = useTheme();
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<DataTab>('classes');
+  const [activeTab, setActiveTab] = useState<DataTab>('labs');
   const [classes, setClasses] = useState<PracticumClass[]>([]);
   const [participants, setParticipants] = useState<ClassParticipant[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -106,6 +117,9 @@ export default function ManagePracticumDataScreen() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [timeDropdownOpen, setTimeDropdownOpen] = useState(false);
+  const [labDropdownOpen, setLabDropdownOpen] = useState(false);
+  const [participantOfferingDropdownOpen, setParticipantOfferingDropdownOpen] =
+    useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -114,16 +128,11 @@ export default function ManagePracticumDataScreen() {
   const [className, setClassName] = useState('');
   const [courseName, setCourseName] = useState('');
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
-  const [initialScheduleRoom, setInitialScheduleRoom] = useState('');
-  const [initialScheduleDate, setInitialScheduleDate] = useState('');
-  const [initialStartTime, setInitialStartTime] = useState('');
-  const [initialEndTime, setInitialEndTime] = useState('');
 
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
 
   const [allSchedules, setAllSchedules] = useState<PracticumSchedule[]>([]);
-  const [scheduleCourse, setScheduleCourse] = useState('');
   const [scheduleRoom, setScheduleRoom] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -131,14 +140,49 @@ export default function ManagePracticumDataScreen() {
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(
     null,
   );
+  const [reschedulingScheduleId, setReschedulingScheduleId] = useState<string | null>(
+    null,
+  );
+  const [repeatWeekly, setRepeatWeekly] = useState(true);
+  const [meetingCount, setMeetingCount] = useState('16');
+  const [addingMeetingToSeriesId, setAddingMeetingToSeriesId] = useState<string | null>(null);
   const loadedStreams = useRef(new Set<string>());
 
   const activeClassId = classes.some((item) => item.id === selectedClassId)
     ? selectedClassId
     : classes[0]?.id ?? '';
+  const activeClass = classes.find((item) => item.id === activeClassId);
   const activeUserId = users.some((item) => item.id === selectedUserId)
     ? selectedUserId
     : users[0]?.id ?? '';
+  const labGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      { name: string; offerings: PracticumClass[] }
+    >();
+
+    classes.forEach((practicumClass) => {
+      const key = practicumClass.name.trim().toLocaleLowerCase();
+      const group = groups.get(key);
+      if (group) {
+        group.offerings.push(practicumClass);
+      } else {
+        groups.set(key, {
+          name: practicumClass.name,
+          offerings: [practicumClass],
+        });
+      }
+    });
+
+    return [...groups.values()]
+      .map((group) => ({
+        ...group,
+        offerings: group.offerings.sort((a, b) =>
+          a.course.localeCompare(b.course),
+        ),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [classes]);
   const calendarCells = useMemo(() => {
     const year = calendarMonth.getFullYear();
     const month = calendarMonth.getMonth();
@@ -161,9 +205,25 @@ export default function ManagePracticumDataScreen() {
   }, [calendarMonth]);
   const selectedTimeSlot = PRACTICUM_TIME_SLOTS.find(
     (slot) =>
-      slot.startTime === (editingScheduleId ? startTime : initialStartTime) &&
-      slot.endTime === (editingScheduleId ? endTime : initialEndTime),
+      slot.startTime === startTime &&
+      slot.endTime === endTime,
   );
+  const scheduleSeries = useMemo(() => {
+    const groups = new Map<string, PracticumSchedule[]>();
+    schedules.forEach((schedule) => {
+      if (!schedule.seriesId) return;
+      const group = groups.get(schedule.seriesId) ?? [];
+      group.push(schedule);
+      groups.set(schedule.seriesId, group);
+    });
+    return [...groups.entries()].map(([id, meetings]) => ({
+      id,
+      meetings: meetings.sort((a, b) => a.date.localeCompare(b.date)),
+      template: [...meetings].sort((a, b) => a.date.localeCompare(b.date))[0],
+      active: meetings.some((meeting) => meeting.seriesActive !== false) &&
+        meetings.some((meeting) => meeting.status !== 'cancelled'),
+    }));
+  }, [schedules]);
 
   useEffect(() => {
     if (!currentUser) {
@@ -264,7 +324,7 @@ export default function ManagePracticumDataScreen() {
           : '';
       setError(
         code === 'permission-denied' || code === 'firestore/permission-denied'
-          ? 'Firestore menolak penyimpanan kelas dan jadwal (permission-denied). Pastikan rules terbaru terbit di project labora-89bf3 dan profil users/{UID} memiliki role asisten.'
+          ? 'Firestore menolak perubahan data Lab (permission-denied). Pastikan rules terbaru terbit di project labora-89bf3 dan profil users/{UID} memiliki role asisten.'
           : actionError instanceof Error
             ? `${actionError.message}${code ? ` (${code})` : ''}`
             : 'Tidak dapat menyimpan perubahan ke Firebase.',
@@ -280,7 +340,19 @@ export default function ManagePracticumDataScreen() {
     const course = courseName.trim();
 
     if (!name || !course || !currentUser) {
-      setError('Nama kelas dan nama praktikum wajib diisi.');
+      setError('Nama Lab dan nama praktikum wajib diisi.');
+      return;
+    }
+
+    const duplicateOffering = classes.some(
+      (item) =>
+        item.id !== editingClassId &&
+        item.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase() &&
+        item.course.trim().toLocaleLowerCase() === course.toLocaleLowerCase(),
+    );
+    if (duplicateOffering) {
+      setNotice(null);
+      setError('Praktikum tersebut sudah terdaftar di Lab ini.');
       return;
     }
 
@@ -293,7 +365,7 @@ export default function ManagePracticumDataScreen() {
     if (editingClassId) {
       const succeeded = await performAction(
         () => updateClass(editingClassId, classInput),
-        'Data kelas berhasil diperbarui.',
+        'Data Lab berhasil diperbarui.',
       );
 
       if (succeeded) {
@@ -305,94 +377,54 @@ export default function ManagePracticumDataScreen() {
       return;
     }
 
-    if (!initialScheduleRoom.trim()) {
-      setError('Ruang praktikum wajib diisi.');
-      return;
-    }
-
-    if (!isValidDate(initialScheduleDate)) {
-      setError('Tanggal harus menggunakan format YYYY-MM-DD yang valid.');
-      return;
-    }
-
-    if (initialScheduleDate < todayKey()) {
-      setError('Tanggal praktikum tidak boleh di masa lalu.');
-      return;
-    }
-
-    const selectedSlot = PRACTICUM_TIME_SLOTS.find(
-      (slot) =>
-        slot.startTime === initialStartTime &&
-        slot.endTime === initialEndTime,
+    const labAlreadyExists = classes.some(
+      (item) =>
+        item.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase(),
     );
-
-    if (!selectedSlot) {
-      setError('Pilih salah satu slot praktikum yang tersedia.');
-      return;
-    }
-
-    if (
-      hasPracticumTimeConflict(
-        initialScheduleRoom,
-        initialScheduleDate,
-        selectedSlot,
-        allSchedules,
-      )
-    ) {
-      setError('Slot ini bentrok dengan jadwal lain di lab dan tanggal tersebut.');
-      return;
-    }
-
     const succeeded = await performAction(
-      () =>
-        createClassWithSchedule(classInput, {
-          praktikum: course,
-          ruang: initialScheduleRoom.trim(),
-          date: initialScheduleDate,
-          startTime: selectedSlot.startTime,
-          endTime: selectedSlot.endTime,
-        }),
-      'Kelas dan jadwal berhasil disimpan.',
+      () => createClass(classInput),
+      labAlreadyExists
+        ? 'Praktikum berhasil ditambahkan ke Lab.'
+        : 'Lab dan praktikum berhasil ditambahkan.',
     );
 
     if (succeeded) {
       setClassName('');
       setCourseName('');
       setEditingClassId(null);
-      setInitialScheduleRoom('');
-      setInitialScheduleDate('');
-      setInitialStartTime('');
-      setInitialEndTime('');
-      setTimeDropdownOpen(false);
     }
   }
 
   async function saveSchedule() {
-    if (!editingScheduleId) {
-      setError('Pilih jadwal yang ingin diubah.');
+    const selectedClass = classes.find((item) => item.id === activeClassId);
+
+    if (!selectedClass) {
+      setNotice(null);
+      setError('Pilih Lab yang akan dijadwalkan.');
       return;
     }
 
-    const selectedClass = classes.find((item) => item.id === activeClassId);
-
-    if (!selectedClass || !scheduleCourse.trim() || !scheduleRoom.trim()) {
-      setError('Pilih kelas, lalu lengkapi nama praktikum dan ruang.');
+    if (!scheduleRoom.trim()) {
+      setNotice(null);
+      setError('Ruang laboratorium wajib diisi.');
       return;
     }
 
     if (!isValidDate(scheduleDate)) {
+      setNotice(null);
       setError('Tanggal harus menggunakan format YYYY-MM-DD yang valid.');
       return;
     }
 
-    const originalSchedule = allSchedules.find(
-      (item) => item.id === editingScheduleId,
-    );
+    const originalSchedule = editingScheduleId
+      ? allSchedules.find((item) => item.id === editingScheduleId)
+      : null;
     const dateChanged = originalSchedule
       ? originalSchedule.date !== scheduleDate
       : true;
 
     if (dateChanged && scheduleDate < todayKey()) {
+      setNotice(null);
       setError('Tanggal praktikum tidak boleh di masa lalu.');
       return;
     }
@@ -402,23 +434,36 @@ export default function ManagePracticumDataScreen() {
     );
 
     if (!selectedSlot) {
+      setNotice(null);
       setError('Pilih salah satu slot praktikum yang tersedia.');
       return;
     }
 
+    const parsedMeetingCount = Number(meetingCount);
+    if (
+      repeatWeekly &&
+      (!Number.isInteger(parsedMeetingCount) || parsedMeetingCount < 1 || parsedMeetingCount > 200)
+    ) {
+      setNotice(null);
+      setError('Jumlah pertemuan mingguan harus antara 1 dan 200.');
+      return;
+    }
+
     if (isTimeSlotDisabled(selectedSlot, editingScheduleId)) {
-      setError('Slot ini bentrok dengan jadwal lain di lab dan tanggal tersebut.');
+      setNotice(null);
+      setError('Slot ini bentrok dengan jadwal lain di ruang laboratorium tersebut.');
       return;
     }
 
     if (!currentUser) {
+      setNotice(null);
       setError('Sesi login tidak ditemukan. Silakan masuk kembali.');
       return;
     }
 
     const input = {
       classId: selectedClass.id,
-      praktikum: scheduleCourse.trim(),
+      praktikum: selectedClass.course,
       kelas: selectedClass.name,
       ruang: scheduleRoom.trim(),
       date: scheduleDate,
@@ -426,9 +471,56 @@ export default function ManagePracticumDataScreen() {
       endTime,
       assistantId: currentUser.id,
     };
+    if (repeatWeekly) {
+      for (let index = 1; index < parsedMeetingCount; index += 1) {
+        const occurrence = new Date(`${scheduleDate}T12:00:00Z`);
+        occurrence.setUTCDate(occurrence.getUTCDate() + index * 7);
+        const occurrenceDate = occurrence.toISOString().slice(0, 10);
+        if (
+          hasPracticumTimeConflict(
+            scheduleRoom,
+            occurrenceDate,
+            selectedSlot,
+            allSchedules,
+          )
+        ) {
+          setNotice(null);
+          setError(`Ada bentrok ruang atau waktu pada ${formatDate(occurrenceDate)}.`);
+          return;
+        }
+      }
+    }
     const succeeded = await performAction(
-      () => updateSchedule(editingScheduleId, input),
-      'Jadwal berhasil diperbarui.',
+      async () => {
+        if (reschedulingScheduleId) {
+          return rescheduleMeeting(reschedulingScheduleId, input);
+        }
+        if (editingScheduleId) {
+          return updateSchedule(editingScheduleId, input);
+        }
+        if (addingMeetingToSeriesId) {
+          const nextIndex = Math.max(
+            0,
+            ...schedules
+              .filter((schedule) => schedule.seriesId === addingMeetingToSeriesId)
+              .map((schedule) => schedule.seriesIndex ?? 0),
+          ) + 1;
+          return createSeriesMeeting(input, addingMeetingToSeriesId, nextIndex);
+        }
+        if (repeatWeekly) {
+          return createWeeklyScheduleSeries(input, parsedMeetingCount);
+        }
+        return createSchedule(input);
+      },
+      reschedulingScheduleId
+        ? 'Pertemuan berhasil dipindahkan. Jadwal lama tetap tersimpan.'
+        : editingScheduleId
+          ? 'Jadwal berhasil diperbarui.'
+            : addingMeetingToSeriesId
+              ? 'Pertemuan berhasil ditambahkan ke jadwal rutin.'
+              : repeatWeekly
+                ? `Jadwal rutin berhasil dibuat dengan ${parsedMeetingCount} pertemuan.`
+                : 'Pertemuan berhasil ditambahkan.',
     );
 
     if (succeeded) {
@@ -437,13 +529,16 @@ export default function ManagePracticumDataScreen() {
   }
 
   function resetScheduleForm() {
-    setScheduleCourse('');
     setScheduleRoom('');
     setScheduleDate('');
     setStartTime('');
     setEndTime('');
     setTimeDropdownOpen(false);
     setEditingScheduleId(null);
+    setReschedulingScheduleId(null);
+    setRepeatWeekly(true);
+    setAddingMeetingToSeriesId(null);
+    setLabDropdownOpen(false);
   }
 
   async function confirmDelete() {
@@ -457,6 +552,8 @@ export default function ManagePracticumDataScreen() {
         await deleteClass(target.id);
       } else if (target.type === 'schedule') {
         await deleteSchedule(target.id);
+      } else if (target.type === 'series') {
+        await endScheduleSeries(target.id);
       } else {
         await removeParticipant(target.classId, target.userId);
       }
@@ -469,7 +566,7 @@ export default function ManagePracticumDataScreen() {
 
   async function assignParticipant() {
     if (!activeClassId || !activeUserId) {
-      setError('Pilih kelas dan praktikan terlebih dahulu.');
+      setError('Pilih Lab dan praktikan terlebih dahulu.');
       return;
     }
 
@@ -484,19 +581,52 @@ export default function ManagePracticumDataScreen() {
 
   function beginEditSchedule(schedule: PracticumSchedule) {
     setSelectedClassId(schedule.classId);
-    setScheduleCourse(schedule.praktikum);
     setScheduleRoom(schedule.ruang);
     setScheduleDate(schedule.date);
     setStartTime(schedule.startTime);
     setEndTime(schedule.endTime);
     setTimeDropdownOpen(false);
+    setLabDropdownOpen(false);
     setEditingScheduleId(schedule.id);
+    setReschedulingScheduleId(null);
+    setRepeatWeekly(false);
+    setActiveTab('meetings');
+  }
+
+  function beginReschedule(schedule: PracticumSchedule) {
+    setSelectedClassId(schedule.classId);
+    setScheduleRoom('');
+    setScheduleDate('');
+    setStartTime('');
+    setEndTime('');
+    setTimeDropdownOpen(false);
+    setLabDropdownOpen(false);
+    setEditingScheduleId(schedule.id);
+    setReschedulingScheduleId(schedule.id);
+    setRepeatWeekly(false);
+    setActiveTab('meetings');
+  }
+
+  function beginAddSeriesMeeting(seriesId: string) {
+    const series = scheduleSeries.find((item) => item.id === seriesId);
+    if (!series) return;
+    setActiveTab('meetings');
+    setSelectedClassId(series.template.classId);
+    setScheduleRoom(series.template.ruang);
+    setScheduleDate('');
+    setStartTime(series.template.startTime);
+    setEndTime(series.template.endTime);
+    setEditingScheduleId(null);
+    setReschedulingScheduleId(null);
+    setRepeatWeekly(false);
+    setAddingMeetingToSeriesId(seriesId);
+    setError(null);
+    setNotice(null);
   }
 
   function openDatePicker() {
-    const activeDate = editingScheduleId ? scheduleDate : initialScheduleDate;
-    const dateToShow = isValidDate(activeDate)
-      ? new Date(`${activeDate}T00:00:00`)
+    const dateToShow = isValidDate(scheduleDate)
+      ? new Date(`${scheduleDate}T00:00:00`)
       : new Date();
 
     setCalendarMonth(
@@ -510,15 +640,9 @@ export default function ManagePracticumDataScreen() {
     const month = calendarMonth.getMonth() + 1;
     const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-    if (editingScheduleId) {
-      setScheduleDate(date);
-      setStartTime('');
-      setEndTime('');
-    } else {
-      setInitialScheduleDate(date);
-      setInitialStartTime('');
-      setInitialEndTime('');
-    }
+    setScheduleDate(date);
+    setStartTime('');
+    setEndTime('');
     setTimeDropdownOpen(false);
     setDatePickerVisible(false);
     setError(null);
@@ -529,8 +653,8 @@ export default function ManagePracticumDataScreen() {
     excludedScheduleId: string | null = editingScheduleId,
   ) {
     return hasPracticumTimeConflict(
-      editingScheduleId ? scheduleRoom : initialScheduleRoom,
-      editingScheduleId ? scheduleDate : initialScheduleDate,
+      scheduleRoom,
+      scheduleDate,
       slot,
       allSchedules,
       excludedScheduleId,
@@ -538,64 +662,44 @@ export default function ManagePracticumDataScreen() {
   }
 
   function selectTimeSlot(slot: PracticumTimeSlot) {
-    if (editingScheduleId) {
-      setStartTime(slot.startTime);
-      setEndTime(slot.endTime);
-    } else {
-      setInitialStartTime(slot.startTime);
-      setInitialEndTime(slot.endTime);
-    }
+    setStartTime(slot.startTime);
+    setEndTime(slot.endTime);
     setTimeDropdownOpen(false);
     setError(null);
   }
 
   function updateScheduleRoom(room: string) {
-    const isInitialSchedule = !editingScheduleId;
-    const date = isInitialSchedule ? initialScheduleDate : scheduleDate;
     const currentSlot = selectedTimeSlot;
-    if (isInitialSchedule) {
-      setInitialScheduleRoom(room);
-    } else {
-      setScheduleRoom(room);
-    }
+    setScheduleRoom(room);
 
     if (
       currentSlot &&
       hasPracticumTimeConflict(
         room,
-        date,
+        scheduleDate,
         currentSlot,
         allSchedules,
         editingScheduleId,
       )
     ) {
-      if (isInitialSchedule) {
-        setInitialStartTime('');
-        setInitialEndTime('');
-      } else {
-        setStartTime('');
-        setEndTime('');
-      }
+      setStartTime('');
+      setEndTime('');
     }
   }
 
   function renderScheduleFields() {
-    const isInitialSchedule = !editingScheduleId;
-    const room = isInitialSchedule ? initialScheduleRoom : scheduleRoom;
-    const date = isInitialSchedule ? initialScheduleDate : scheduleDate;
-
     return (
       <>
         <DataInput
-          label="Ruang"
-          value={room}
+          label="Ruang Laboratorium"
+          value={scheduleRoom}
           onChangeText={updateScheduleRoom}
-          placeholder="Contoh: Lab Komputer A"
+          placeholder="Contoh: Lab B"
           theme={theme}
         />
         <View style={styles.inputGroup}>
           <ThemedText type="smallBold" style={styles.inputLabel}>
-            Tanggal praktikum
+            {addingMeetingToSeriesId ? 'Tanggal pertemuan' : 'Tanggal pertemuan pertama'}
           </ThemedText>
           <Pressable
             accessibilityRole="button"
@@ -611,9 +715,9 @@ export default function ManagePracticumDataScreen() {
             <ThemedText
               type="small"
               style={{
-                color: date ? theme.text : theme.textSecondary,
+                color: scheduleDate ? theme.text : theme.textSecondary,
               }}>
-                {date ? formatDate(date) : 'Pilih tanggal'}
+                {scheduleDate ? formatDate(scheduleDate) : 'Pilih tanggal'}
             </ThemedText>
           </Pressable>
         </View>
@@ -626,7 +730,11 @@ export default function ManagePracticumDataScreen() {
           </ThemedText>
           <Pressable
             accessibilityRole="button"
-            accessibilityState={{ expanded: timeDropdownOpen }}
+            accessibilityState={{
+              expanded: timeDropdownOpen,
+              disabled: !scheduleRoom.trim() || !scheduleDate,
+            }}
+            disabled={!scheduleRoom.trim() || !scheduleDate}
             onPress={() => setTimeDropdownOpen(true)}
             style={[
               styles.inputContainer,
@@ -635,6 +743,7 @@ export default function ManagePracticumDataScreen() {
                 backgroundColor: theme.glassInput,
                 borderColor: theme.glassBorder,
               },
+              (!scheduleRoom.trim() || !scheduleDate) && styles.dimmed,
             ]}>
             <ThemedText
               type="small"
@@ -666,13 +775,17 @@ export default function ManagePracticumDataScreen() {
           },
         ]}>
         <ThemedText type="smallBold">
-          {editingClassId ? 'Ubah kelas' : 'Tambah kelas dan jadwal'}
+          {editingClassId
+            ? 'Ubah praktikum di Lab'
+            : className.trim()
+              ? `Tambah praktikum di ${className.trim()}`
+              : 'Tambah Lab dan praktikum'}
         </ThemedText>
         <DataInput
-          label="Nama kelas"
+          label="Nama Lab"
           value={className}
           onChangeText={setClassName}
-          placeholder="Contoh: Kelas A"
+          placeholder="Contoh: Lab B2"
           theme={theme}
         />
         <DataInput
@@ -682,15 +795,15 @@ export default function ManagePracticumDataScreen() {
           placeholder="Contoh: Basis Data"
           theme={theme}
         />
-        {!editingClassId ? (
-          <>
-            <ThemedText type="smallBold">Jadwal pertama</ThemedText>
-            {renderScheduleFields()}
-          </>
-        ) : null}
         <View style={styles.buttonRow}>
           <ActionButton
-            label={editingClassId ? 'Simpan perubahan' : 'Tambah kelas & jadwal'}
+            label={
+              editingClassId
+                ? 'Simpan perubahan'
+                : className.trim()
+                  ? 'Tambah praktikum'
+                  : 'Tambah'
+            }
             onPress={saveClass}
             disabled={busy}
             primary
@@ -715,13 +828,13 @@ export default function ManagePracticumDataScreen() {
   function renderClasses() {
     return (
       <View style={styles.section}>
-        {editingScheduleId ? renderScheduleEditor() : renderClassForm()}
+        {renderClassForm()}
         {classes.length === 0 ? (
-          <EmptyState text="Belum ada kelas. Tambahkan kelas beserta jadwal pertamanya." />
+          <EmptyState text="Belum ada Lab dan praktikum. Tambahkan keduanya untuk mulai mengelola peserta dan jadwal." />
         ) : (
-          classes.map((practicumClass) => (
+          labGroups.map((lab) => (
             <ThemedView
-              key={practicumClass.id}
+              key={lab.name.trim().toLocaleLowerCase()}
               type="backgroundElement"
               style={[
                 styles.card,
@@ -730,38 +843,72 @@ export default function ManagePracticumDataScreen() {
                   borderColor: theme.glassBorder,
                 },
               ]}>
-              <ThemedText type="smallBold">{practicumClass.name}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {practicumClass.course}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {participants.filter((item) => item.classId === practicumClass.id).length}{' '}
-                peserta · {schedules.filter((item) => item.classId === practicumClass.id).length}{' '}
-                jadwal
-              </ThemedText>
-              <View style={styles.buttonRow}>
-                <ActionButton
-                  label="Ubah"
-                  onPress={() => beginEditClass(practicumClass)}
-                  disabled={busy || Boolean(editingScheduleId)}
-                />
-                <ActionButton
-                  label="Hapus"
-                  onPress={() =>
-                    setDeleteTarget({
-                      type: 'class',
-                      id: practicumClass.id,
-                      label: practicumClass.name,
-                    })
-                  }
-                  disabled={busy || Boolean(editingScheduleId)}
-                  danger
-                />
-              </View>
+              <ThemedText type="smallBold">{lab.name}</ThemedText>
+              {lab.offerings.map((practicumClass) => (
+                <View
+                  key={practicumClass.id}
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: theme.glassInput,
+                      borderColor: theme.glassBorder,
+                    },
+                  ]}>
+                  <ThemedText type="smallBold">{practicumClass.course}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {participants.filter((item) => item.classId === practicumClass.id).length}{' '}
+                    peserta · {schedules.filter((item) => item.classId === practicumClass.id).length}{' '}
+                    jadwal
+                  </ThemedText>
+                  <View style={styles.buttonRow}>
+                    <ActionButton
+                      label="Ubah"
+                      onPress={() => beginEditClass(practicumClass)}
+                      disabled={busy || Boolean(editingScheduleId)}
+                    />
+                    <ActionButton
+                      label="Hapus praktikum"
+                      onPress={() =>
+                        setDeleteTarget({
+                          type: 'class',
+                          id: practicumClass.id,
+                          label: `${lab.name} · ${practicumClass.course}`,
+                        })
+                      }
+                      disabled={busy || Boolean(editingScheduleId)}
+                      danger
+                    />
+                  </View>
+                </View>
+              ))}
             </ThemedView>
           ))
         )}
+      </View>
+    );
+  }
+
+  function renderScheduleTab() {
+    return (
+      <View style={styles.section}>
+        {classes.length === 0 ? (
+          <EmptyState text="Buat Lab terlebih dahulu sebelum menambah jadwal." />
+        ) : (
+          renderScheduleEditor()
+        )}
         {renderSchedules()}
+      </View>
+    );
+  }
+
+  function renderMeetingTab() {
+    return (
+      <View style={styles.section}>
+        {classes.length === 0 ? (
+          <EmptyState text="Buat jadwal rutin di tab Jadwal terlebih dahulu." />
+        ) : (
+          renderMeetings()
+        )}
       </View>
     );
   }
@@ -778,23 +925,40 @@ export default function ManagePracticumDataScreen() {
               borderColor: theme.glassBorder,
             },
           ]}>
-          <ThemedText type="smallBold">Tambahkan peserta ke kelas</ThemedText>
+          <ThemedText type="smallBold">Tambahkan peserta ke praktikum</ThemedText>
           {classes.length === 0 ? (
             <ThemedText type="small" themeColor="textSecondary">
-              Buat kelas terlebih dahulu.
+              Tambahkan Lab dan praktikum terlebih dahulu.
             </ThemedText>
           ) : (
             <>
-              <ThemedText type="small">Pilih kelas</ThemedText>
-              <View style={styles.choiceList}>
-                {classes.map((practicumClass) => (
-                  <ChoiceChip
-                    key={practicumClass.id}
-                    label={practicumClass.name}
-                    selected={activeClassId === practicumClass.id}
-                    onPress={() => setSelectedClassId(practicumClass.id)}
-                  />
-                ))}
+              <View style={styles.inputGroup}>
+                <ThemedText type="smallBold" style={styles.inputLabel}>
+                  Pilih praktikum
+                </ThemedText>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    expanded: participantOfferingDropdownOpen,
+                  }}
+                  onPress={() => setParticipantOfferingDropdownOpen(true)}
+                  style={[
+                    styles.inputContainer,
+                    styles.timeDropdownField,
+                    {
+                      backgroundColor: theme.glassInput,
+                      borderColor: theme.glassBorder,
+                    },
+                  ]}>
+                  <ThemedText type="small">
+                    {activeClass
+                      ? `${activeClass.course} · ${activeClass.name}`
+                      : 'Pilih praktikum'}
+                  </ThemedText>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                    {participantOfferingDropdownOpen ? '▲' : '▼'}
+                  </ThemedText>
+                </Pressable>
               </View>
 
               <ThemedText type="small">Pilih praktikan</ThemedText>
@@ -833,13 +997,10 @@ export default function ManagePracticumDataScreen() {
           )}
         </ThemedView>
 
-        {classes.map((practicumClass) => {
-          const classParticipants = participants.filter(
-            (participant) => participant.classId === practicumClass.id,
-          );
+        {labGroups.map((lab) => {
           return (
             <ThemedView
-              key={practicumClass.id}
+              key={`participants-${lab.name.trim().toLocaleLowerCase()}`}
               type="backgroundElement"
               style={[
                 styles.card,
@@ -848,42 +1009,64 @@ export default function ManagePracticumDataScreen() {
                   borderColor: theme.glassBorder,
                 },
               ]}>
-              <ThemedText type="smallBold">{practicumClass.name}</ThemedText>
-              {classParticipants.length === 0 ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  Belum ada peserta di kelas ini.
-                </ThemedText>
-              ) : (
-                classParticipants.map((participant) => {
-                  const user = users.find((item) => item.id === participant.userId);
-                  return (
-                    <View key={participant.id} style={styles.listRow}>
-                      <View style={styles.flex}>
-                        <ThemedText type="smallBold">
-                          {user?.name ?? 'Praktikan tidak ditemukan'}
-                        </ThemedText>
-                        <ThemedText type="small" themeColor="textSecondary">
-                          {user?.identityNumber ?? participant.userId}
-                        </ThemedText>
-                      </View>
-                      <ActionButton
-                        label="Hapus"
-                        onPress={() =>
-                          setDeleteTarget({
-                            type: 'participant',
-                            id: participant.id,
-                            classId: participant.classId,
-                            userId: participant.userId,
-                            label: user?.name ?? 'peserta',
-                          })
-                        }
-                        disabled={busy}
-                        danger
-                      />
-                    </View>
-                  );
-                })
-              )}
+              <ThemedText type="smallBold">{lab.name}</ThemedText>
+              {lab.offerings.map((practicumClass) => {
+                const classParticipants = participants.filter(
+                  (participant) => participant.classId === practicumClass.id,
+                );
+                return (
+                  <View
+                    key={practicumClass.id}
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: theme.glassInput,
+                        borderColor: theme.glassBorder,
+                      },
+                    ]}>
+                    <ThemedText type="smallBold">
+                      {practicumClass.course}
+                    </ThemedText>
+                    {classParticipants.length === 0 ? (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        Belum ada peserta untuk praktikum ini.
+                      </ThemedText>
+                    ) : (
+                      classParticipants.map((participant) => {
+                        const user = users.find(
+                          (item) => item.id === participant.userId,
+                        );
+                        return (
+                          <View key={participant.id} style={styles.listRow}>
+                            <View style={styles.flex}>
+                              <ThemedText type="smallBold">
+                                {user?.name ?? 'Praktikan tidak ditemukan'}
+                              </ThemedText>
+                              <ThemedText type="small" themeColor="textSecondary">
+                                {user?.identityNumber ?? participant.userId}
+                              </ThemedText>
+                            </View>
+                            <ActionButton
+                              label="Hapus"
+                              onPress={() =>
+                                setDeleteTarget({
+                                  type: 'participant',
+                                  id: participant.id,
+                                  classId: participant.classId,
+                                  userId: participant.userId,
+                                  label: user?.name ?? 'peserta',
+                                })
+                              }
+                              disabled={busy}
+                              danger
+                            />
+                          </View>
+                        );
+                      })
+                    )}
+                  </View>
+                );
+              })}
             </ThemedView>
           );
         })}
@@ -892,10 +1075,6 @@ export default function ManagePracticumDataScreen() {
   }
 
   function renderScheduleEditor() {
-    if (!editingScheduleId) {
-      return null;
-    }
-
     return (
       <ThemedView
         type="backgroundElement"
@@ -906,38 +1085,78 @@ export default function ManagePracticumDataScreen() {
             borderColor: theme.glassBorder,
           },
         ]}>
-        <ThemedText type="smallBold">Ubah jadwal</ThemedText>
-        <ThemedText type="small">Pilih kelas</ThemedText>
-        <View style={styles.choiceList}>
-          {classes.map((practicumClass) => (
-            <ChoiceChip
-              key={practicumClass.id}
-              label={practicumClass.name}
-              selected={activeClassId === practicumClass.id}
-              onPress={() => setSelectedClassId(practicumClass.id)}
-            />
-          ))}
+        <ThemedText type="smallBold">
+          {addingMeetingToSeriesId
+            ? 'Tambah pertemuan'
+            : reschedulingScheduleId
+            ? 'Pindahkan satu pertemuan'
+            : editingScheduleId
+              ? 'Ubah jadwal'
+              : 'Tambah jadwal rutin atau pertemuan'}
+        </ThemedText>
+        <View style={styles.inputGroup}>
+          <ThemedText type="smallBold" style={styles.inputLabel}>
+            Lab dan praktikum
+          </ThemedText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: labDropdownOpen }}
+            onPress={() => setLabDropdownOpen(true)}
+            style={[
+              styles.inputContainer,
+              styles.timeDropdownField,
+              {
+                backgroundColor: theme.glassInput,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <ThemedText
+              type="small"
+              style={{ color: activeClass ? theme.text : theme.textSecondary }}>
+              {activeClass
+                ? `${activeClass.name} · ${activeClass.course}`
+                : 'Pilih Lab'}
+            </ThemedText>
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              {labDropdownOpen ? '▲' : '▼'}
+            </ThemedText>
+          </Pressable>
         </View>
-        <DataInput
-          label="Nama praktikum"
-          value={scheduleCourse}
-          onChangeText={setScheduleCourse}
-          placeholder="Contoh: Basis Data"
-          theme={theme}
-        />
         {renderScheduleFields()}
+        {repeatWeekly && !editingScheduleId && !reschedulingScheduleId && !addingMeetingToSeriesId ? (
+          <DataInput
+            label="Jumlah pertemuan mingguan"
+            value={meetingCount}
+            onChangeText={setMeetingCount}
+            keyboardType="number-pad"
+            placeholder="Contoh: 16"
+            theme={theme}
+          />
+        ) : null}
         <View style={styles.buttonRow}>
           <ActionButton
-            label="Simpan perubahan"
+            label={
+              addingMeetingToSeriesId
+                ? 'Tambah pertemuan'
+                : reschedulingScheduleId
+                ? 'Simpan jadwal pengganti'
+                : editingScheduleId
+                  ? 'Simpan perubahan'
+                  : repeatWeekly
+                    ? 'Buat jadwal rutin'
+                    : 'Tambah pertemuan'
+            }
             onPress={saveSchedule}
             disabled={busy}
             primary
           />
-          <ActionButton
-            label="Batal"
-            onPress={resetScheduleForm}
-            disabled={busy}
-          />
+          {editingScheduleId || reschedulingScheduleId || addingMeetingToSeriesId ? (
+            <ActionButton
+              label="Batal"
+              onPress={resetScheduleForm}
+              disabled={busy}
+            />
+          ) : null}
         </View>
       </ThemedView>
     );
@@ -946,11 +1165,111 @@ export default function ManagePracticumDataScreen() {
   function renderSchedules() {
     return (
       <>
-        <ThemedText type="smallBold">Jadwal tersimpan</ThemedText>
-        {schedules.length === 0 ? (
-          <EmptyState text="Jadwal pertama akan dibuat saat kelas ditambahkan." />
+        <ThemedText type="smallBold">Jadwal rutin</ThemedText>
+        {scheduleSeries.length === 0 ? (
+          <EmptyState text="Belum ada jadwal rutin. Buat jadwal mingguan dari formulir di atas." />
         ) : (
-          schedules.map((schedule) => (
+          scheduleSeries.map(({ id, template, meetings, active }) => (
+            <ThemedView
+              key={id}
+              type="backgroundElement"
+              style={[
+                styles.card,
+                {
+                  backgroundColor: theme.glassCard,
+                  borderColor: theme.glassBorder,
+                },
+              ]}>
+              <View style={styles.listRow}>
+                <View style={styles.flex}>
+                  <ThemedText type="smallBold">{template.praktikum}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {template.kelas} · {template.ruang}
+                  </ThemedText>
+                </View>
+                <ThemedText
+                  type="smallBold"
+                  style={{ color: active ? theme.primary : theme.textSecondary }}>
+                  {active ? 'Aktif' : 'Selesai'}
+                </ThemedText>
+              </View>
+              <ThemedText type="small" themeColor="textSecondary">
+                Setiap {new Date(`${template.date}T12:00:00`).toLocaleDateString('id-ID', { weekday: 'long' })} · {template.startTime}–{template.endTime}
+              </ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {new Set(
+                  meetings
+                    .filter((meeting) => meeting.status !== 'cancelled')
+                    .map((meeting) => meeting.seriesIndex ?? meeting.id),
+                ).size} pertemuan tersimpan
+              </ThemedText>
+              {active ? (
+                <View style={styles.buttonRow}>
+                  <ActionButton
+                    label="Tambah pertemuan"
+                    onPress={() => beginAddSeriesMeeting(id)}
+                    disabled={busy || Boolean(editingScheduleId)}
+                  />
+                  <ActionButton
+                    label="Akhiri jadwal"
+                    onPress={() => setDeleteTarget({ type: 'series', id, label: template.praktikum })}
+                    disabled={busy}
+                    danger
+                  />
+                </View>
+              ) : null}
+            </ThemedView>
+          ))
+        )}
+      </>
+    );
+  }
+
+  function renderMeetings() {
+    const sortedSchedules = [...schedules].sort((a, b) =>
+      `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`),
+    );
+    return (
+      <>
+        {addingMeetingToSeriesId || editingScheduleId || reschedulingScheduleId ? (
+          renderScheduleEditor()
+        ) : (
+          <View style={styles.section}>
+            <ThemedText type="smallBold">Tambah pertemuan ke jadwal rutin</ThemedText>
+            {scheduleSeries.filter((series) => series.active).length === 0 ? (
+              <EmptyState text="Buat jadwal rutin di tab Jadwal terlebih dahulu." />
+            ) : (
+              scheduleSeries
+                .filter((series) => series.active)
+                .map(({ id, template }) => (
+                  <ThemedView
+                    key={`meeting-series-${id}`}
+                    type="backgroundElement"
+                    style={[
+                      styles.card,
+                      { backgroundColor: theme.glassCard, borderColor: theme.glassBorder },
+                    ]}>
+                    <ThemedText type="smallBold">{template.praktikum}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {template.kelas} · {template.ruang} · {template.startTime}–{template.endTime}
+                    </ThemedText>
+                    <ActionButton
+                      label="Tambah tanggal pertemuan"
+                      onPress={() => beginAddSeriesMeeting(id)}
+                      disabled={busy}
+                      primary
+                    />
+                  </ThemedView>
+                ))
+            )}
+          </View>
+        )}
+
+        <ThemedText type="smallBold">Daftar pertemuan</ThemedText>
+        {schedules.length === 0 ? (
+          <EmptyState text="Tambahkan pertemuan untuk jadwal rutin yang sudah dibuat." />
+        ) : (
+          sortedSchedules.map((schedule) => (
             <ThemedView
               key={schedule.id}
               type="backgroundElement"
@@ -966,15 +1285,37 @@ export default function ManagePracticumDataScreen() {
                 {schedule.kelas} · {schedule.ruang}
               </ThemedText>
               <ThemedText type="small" themeColor="textSecondary">
-                {formatDate(schedule.date)} · {schedule.startTime}–{schedule.endTime}
+                {schedule.seriesId ? `Pertemuan ${schedule.seriesIndex ?? ''} · ` : ''}{formatDate(schedule.date)} · {schedule.startTime}–{schedule.endTime}
               </ThemedText>
-              <View style={styles.buttonRow}>
+              {schedule.status === 'cancelled' ? (
+                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                  Dibatalkan saat jadwal rutin diakhiri.
+                </ThemedText>
+              ) : null}
+              {schedule.status === 'rescheduled' ? (
+                <ThemedText type="small" style={{ color: theme.warning }}>
+                  Dipindahkan; jadwal ini tetap tersimpan sebagai riwayat.
+                </ThemedText>
+              ) : null}
+              {schedule.originalScheduleId ? (
+                <ThemedText type="small" style={{ color: theme.primary }}>
+                  Jadwal pengganti satu pertemuan.
+                </ThemedText>
+              ) : null}
+              {schedule.status !== 'cancelled' ? <View style={styles.buttonRow}>
                 <ActionButton
                   label="Ubah"
                   onPress={() => beginEditSchedule(schedule)}
                   disabled={busy || Boolean(editingScheduleId)}
                 />
-                <ActionButton
+                {schedule.status !== 'rescheduled' ? (
+                  <ActionButton
+                    label="Pindah"
+                    onPress={() => beginReschedule(schedule)}
+                    disabled={busy || Boolean(editingScheduleId)}
+                  />
+                ) : null}
+                {!schedule.seriesId ? <ActionButton
                   label="Hapus"
                   onPress={() =>
                     setDeleteTarget({
@@ -985,8 +1326,8 @@ export default function ManagePracticumDataScreen() {
                   }
                   disabled={busy || Boolean(editingScheduleId)}
                   danger
-                />
-              </View>
+                /> : null}
+              </View> : null}
             </ThemedView>
           ))
         )}
@@ -1000,86 +1341,31 @@ export default function ManagePracticumDataScreen() {
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled">
-          <RoleSwitcher />
-          {/* Tombol Back Navigasi */}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.replace('/asisten/jadwal')}
-            style={({ pressed }) => [
-              styles.backButtonPill,
-              {
-                backgroundColor: theme.glassCard,
-                borderColor: theme.glassBorder,
+          <DashboardCapsule
+            title="Kelola Data Praktikum"
+            subtitle="Kelola Lab, peserta, jadwal rutin, dan pertemuan."
+            actions={[
+              { label: 'Kembali ke Jadwal', onPress: () => router.replace('/asisten/jadwal') },
+            ]}
+          />
+          <DashboardTabs
+            tabs={TABS.map((tab) => ({
+              key: tab.id,
+              label: tab.label,
+              active: activeTab === tab.id,
+              onPress: () => {
+                if (activeTab !== tab.id && (addingMeetingToSeriesId || editingScheduleId || reschedulingScheduleId)) {
+                  resetScheduleForm();
+                }
+                setActiveTab(tab.id);
+                setRepeatWeekly(tab.id === 'schedules');
+                setTimeDropdownOpen(false);
+                setLabDropdownOpen(false);
+                setParticipantOfferingDropdownOpen(false);
+                setDatePickerVisible(false);
               },
-              pressed && styles.dimmed,
-            ]}>
-            <ThemedText type="smallBold" style={{ color: theme.primary, fontSize: 13 }}>
-              ← Kembali ke Jadwal & Presensi
-            </ThemedText>
-          </Pressable>
-
-          {/* Tinted Green Glass Header Banner */}
-          <View
-            style={[
-              styles.headerGlassCard,
-              {
-                backgroundColor: theme.primary,
-                borderColor: theme.primary,
-              },
-            ]}>
-            <View style={styles.headerBadge}>
-              <ThemedText
-                type="smallBold"
-                style={{ color: '#FFFFFF', letterSpacing: 1.2, fontSize: 11, fontWeight: '700' }}>
-                MANAJEMEN AKADEMIK
-              </ThemedText>
-            </View>
-            <ThemedText type="subtitle" style={[styles.title, { color: '#FFFFFF' }]}>
-              Kelola Data Praktikum
-            </ThemedText>
-            <ThemedText style={{ color: '#FFFFFF', opacity: 0.9, fontSize: 13 }}>
-              Data kelas, peserta, dan jadwal disinkronkan secara real-time.
-            </ThemedText>
-          </View>
-
-          <View
-            style={[
-              styles.tabsContainer,
-              {
-                backgroundColor: theme.glassCard,
-                borderColor: theme.glassBorder,
-              },
-            ]}>
-            {TABS.map((tab) => {
-              const active = activeTab === tab.id;
-              return (
-                <Pressable
-                  key={tab.id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  onPress={() => {
-                    setActiveTab(tab.id);
-                    setTimeDropdownOpen(false);
-                    setDatePickerVisible(false);
-                  }}
-                  style={[
-                    styles.tab,
-                    {
-                      backgroundColor: active ? theme.primary : 'transparent',
-                    },
-                  ]}>
-                  <ThemedText
-                    type="smallBold"
-                    style={{
-                      color: active ? theme.primaryText : theme.text,
-                      fontSize: 13,
-                    }}>
-                    {tab.label}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-          </View>
+            }))}
+          />
 
           {error ? (
             <View
@@ -1102,13 +1388,89 @@ export default function ManagePracticumDataScreen() {
 
           {loading ? (
             <ActivityIndicator color={theme.primary} />
-          ) : activeTab === 'classes' ? (
+          ) : activeTab === 'labs' ? (
             renderClasses()
+          ) : activeTab === 'schedules' ? (
+            renderScheduleTab()
+          ) : activeTab === 'meetings' ? (
+            renderMeetingTab()
           ) : (
             renderParticipants()
           )}
         </ScrollView>
       </SafeAreaView>
+
+      <Modal
+        visible={labDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLabDropdownOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Tutup pilihan Lab"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setLabDropdownOpen(false)}
+          />
+          <ThemedView
+            type="backgroundElement"
+            style={[
+              styles.timePickerCard,
+              {
+                backgroundColor: theme.glassCard,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <ThemedText type="smallBold">Pilih Lab</ThemedText>
+            <ScrollView
+              style={styles.timeDropdownList}
+              contentContainerStyle={styles.timeDropdownListContent}
+              showsVerticalScrollIndicator={false}>
+              {classes.map((practicumClass) => {
+                const selected = activeClassId === practicumClass.id;
+                return (
+                  <Pressable
+                    key={practicumClass.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      setSelectedClassId(practicumClass.id);
+                      setLabDropdownOpen(false);
+                      setError(null);
+                      setNotice(null);
+                    }}
+                    style={[
+                      styles.timeDropdownOption,
+                      selected && {
+                        backgroundColor: theme.glassInput,
+                      },
+                    ]}>
+                    <View style={styles.flex}>
+                      <ThemedText type="smallBold">
+                        {practicumClass.name}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {practicumClass.course}
+                      </ThemedText>
+                    </View>
+                    {selected ? (
+                      <ThemedText
+                        type="smallBold"
+                        style={{ color: theme.primary }}>
+                        Dipilih
+                      </ThemedText>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <ActionButton
+              label="Tutup"
+              onPress={() => setLabDropdownOpen(false)}
+            />
+          </ThemedView>
+        </View>
+      </Modal>
 
       <Modal
         visible={datePickerVisible}
@@ -1222,6 +1584,80 @@ export default function ManagePracticumDataScreen() {
       </Modal>
 
       <Modal
+        visible={participantOfferingDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setParticipantOfferingDropdownOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Tutup pilihan praktikum"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setParticipantOfferingDropdownOpen(false)}
+          />
+          <ThemedView
+            type="backgroundElement"
+            style={[
+              styles.timePickerCard,
+              {
+                backgroundColor: theme.glassCard,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <ThemedText type="smallBold">Pilih praktikum</ThemedText>
+            <ScrollView
+              style={styles.timeDropdownList}
+              contentContainerStyle={styles.timeDropdownListContent}
+              showsVerticalScrollIndicator={false}>
+              {labGroups.map((lab) => (
+                <View key={lab.name.trim().toLocaleLowerCase()}>
+                  <ThemedText type="smallBold" themeColor="textSecondary">
+                    {lab.name}
+                  </ThemedText>
+                  {lab.offerings.map((practicumClass) => {
+                    const selected = activeClassId === practicumClass.id;
+                    return (
+                      <Pressable
+                        key={practicumClass.id}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        onPress={() => {
+                          setSelectedClassId(practicumClass.id);
+                          setParticipantOfferingDropdownOpen(false);
+                          setError(null);
+                          setNotice(null);
+                        }}
+                        style={[
+                          styles.timeDropdownOption,
+                          selected && {
+                            backgroundColor: theme.glassInput,
+                          },
+                        ]}>
+                        <ThemedText type="small">
+                          {practicumClass.course}
+                        </ThemedText>
+                        {selected ? (
+                          <ThemedText
+                            type="smallBold"
+                            style={{ color: theme.primary }}>
+                            Dipilih
+                          </ThemedText>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            </ScrollView>
+            <ActionButton
+              label="Tutup"
+              onPress={() => setParticipantOfferingDropdownOpen(false)}
+            />
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
         visible={timeDropdownOpen}
         transparent
         animationType="fade"
@@ -1324,10 +1760,13 @@ export default function ManagePracticumDataScreen() {
                 borderColor: theme.glassBorder,
               },
             ]}>
-            <ThemedText type="smallBold">Hapus data?</ThemedText>
+            <ThemedText type="smallBold">
+              {deleteTarget?.type === 'series' ? 'Akhiri jadwal rutin?' : 'Hapus data?'}
+            </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
-              Yakin ingin menghapus {deleteTarget?.label}? Tindakan ini tidak
-              dapat dibatalkan.
+              {deleteTarget?.type === 'series'
+                ? `Akhiri ${deleteTarget.label}? Pertemuan mendatang akan dibatalkan, sementara pertemuan dan riwayat yang sudah lewat tetap tersimpan.`
+                : `Yakin ingin menghapus ${deleteTarget?.label}? Tindakan ini tidak dapat dibatalkan.`}
             </ThemedText>
             <View style={styles.buttonRow}>
               <ActionButton
@@ -1336,7 +1775,7 @@ export default function ManagePracticumDataScreen() {
                 disabled={busy}
               />
               <ActionButton
-                label={busy ? 'Menghapus…' : 'Hapus'}
+                label={busy ? 'Menyimpan...' : deleteTarget?.type === 'series' ? 'Akhiri jadwal' : 'Hapus'}
                 onPress={confirmDelete}
                 disabled={busy}
                 danger
@@ -1495,7 +1934,7 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
     padding: Spacing.four,
-    paddingBottom: Spacing.six,
+    paddingBottom: 110,
     gap: Spacing.four,
   },
   header: {

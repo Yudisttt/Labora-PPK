@@ -58,7 +58,7 @@ export const PRACTICUM_TIME_SLOTS = PRACTICUM_TIME_GROUPS.flatMap(
 
 type ExistingSchedule = Pick<
   Schedule,
-  'id' | 'date' | 'ruang' | 'startTime' | 'endTime'
+  'id' | 'date' | 'ruang' | 'startTime' | 'endTime' | 'status'
 >;
 
 export function hasPracticumTimeConflict(
@@ -79,6 +79,8 @@ export function hasPracticumTimeConflict(
   return schedules.some((schedule) => {
     if (
       schedule.id === excludedScheduleId ||
+      schedule.status === 'cancelled' ||
+      schedule.status === 'rescheduled' ||
       schedule.date !== date ||
       schedule.ruang.trim().replace(/\s+/g, ' ').toLowerCase() !== normalizedRoom
     ) {
