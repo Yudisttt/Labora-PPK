@@ -49,13 +49,14 @@ export function PushNotificationManager() {
         if (message.startsWith('Izin notifikasi')) {
           Alert.alert(
             'Notifikasi belum diizinkan',
-            'Aktifkan notifikasi Labora melalui Pengaturan perangkat agar kamu menerima kabar sesi, jadwal, dan pengajuan izin.',
+            'Aktifkan notifikasi Labora melalui Pengaturan perangkat agar kabar muncul langsung. Kamu tetap dapat melihat pemberitahuan di menu Pemberitahuan dalam aplikasi.',
           );
           return;
         }
-        console.warn(
-          'Pendaftaran notifikasi gagal:',
-          error instanceof Error ? error.message : error,
+        console.warn('Pendaftaran notifikasi gagal:', error);
+        Alert.alert(
+          'Push notification tidak tersedia',
+          'Pemberitahuan sesi, jadwal, dan izin tetap tersimpan di menu Pemberitahuan dalam aplikasi.',
         );
       });
 

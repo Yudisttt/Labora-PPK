@@ -23,6 +23,7 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Spacing, Fonts } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { getAttendanceLocation } from "@/services/attendance-location";
 import { useApp } from "@/state/app-context";
 import type { Schedule, Session } from "@/types";
 import { formatDate, formatDateTime, formatTime } from "@/utils/format";
@@ -54,6 +55,10 @@ export default function PraktikanJadwalScreen() {
     null,
   );
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [retryableCheckIn, setRetryableCheckIn] = useState<{
+    session: Session;
+    schedule: Schedule;
+  } | null>(null);
 
   const myAttendance = currentUser ? getAttendanceForUser(currentUser.id) : [];
   const historyGroups = new Map<
@@ -84,6 +89,15 @@ export default function PraktikanJadwalScreen() {
 
   const openSessions = sessions.filter((s) => s.status === "open");
   const openSessionCount = openSessions.length;
+  const recordedScheduleCount = schedules.filter((schedule) => {
+    const session = getSessionsForSchedule(schedule.id)[0];
+    return Boolean(
+      session &&
+        currentUser &&
+        (hasCheckedIn(session.id, currentUser.id) ||
+          isExcused(session.id, currentUser.id)),
+    );
+  }).length;
   const filteredSchedules = schedules.filter((schedule) => {
     if (scheduleFilter === "all") return true;
 
@@ -117,12 +131,30 @@ export default function PraktikanJadwalScreen() {
       : false;
 
   function showMessage(title: string, message: string) {
+    setRetryableCheckIn(null);
     if (Platform.OS === "web") {
       setFeedbackMessage(`${title}: ${message}`);
       setTimeout(() => setFeedbackMessage(null), 3500);
     } else {
       Alert.alert(title, message);
     }
+  }
+
+  function showCheckInNetworkError(session: Session, schedule: Schedule) {
+    const message = 'Koneksi jaringan terganggu. Periksa koneksi lalu coba presensi lagi.';
+    if (Platform.OS === 'web') {
+      setFeedbackMessage(message);
+      setRetryableCheckIn({ session, schedule });
+      return;
+    }
+
+    Alert.alert('Jaringan Terganggu', message, [
+      { text: 'Tutup', style: 'cancel' },
+      {
+        text: 'Coba lagi',
+        onPress: () => void handleCheckIn(session, schedule),
+      },
+    ]);
   }
 
   async function handleCheckIn(session: Session, schedule: Schedule) {
@@ -151,6 +183,29 @@ export default function PraktikanJadwalScreen() {
       return;
     }
 
+    const locationResult = await getAttendanceLocation();
+    if (!locationResult.ok) {
+      if (locationResult.reason === 'permission-denied') {
+        showMessage(
+          'Izin Lokasi Diperlukan',
+          locationResult.canAskAgain
+            ? 'Izinkan Labora mengakses lokasi saat aplikasi digunakan untuk melakukan presensi. Tekan tombol presensi lagi setelah memberi izin.'
+            : 'Izin lokasi ditolak. Aktifkan melalui Pengaturan perangkat: Aplikasi > Labora > Izin > Lokasi, lalu coba presensi lagi.',
+        );
+      } else if (locationResult.reason === 'services-disabled') {
+        showMessage(
+          'GPS Tidak Aktif',
+          'Aktifkan Lokasi/GPS pada perangkat, lalu tekan tombol presensi lagi.',
+        );
+      } else {
+        showMessage(
+          'Lokasi Belum Tersedia',
+          'Koordinat perangkat belum berhasil diperoleh. Periksa pengaturan lokasi dan coba lagi.',
+        );
+      }
+      return;
+    }
+
     let result: Awaited<ReturnType<typeof checkIn>>;
     try {
       result = await checkIn(session.id, currentUser.id);
@@ -159,6 +214,10 @@ export default function PraktikanJadwalScreen() {
         error instanceof Error && 'code' in error
           ? String(error.code)
           : '';
+      if (['unavailable', 'network-request-failed', 'deadline-exceeded'].includes(code)) {
+        showCheckInNetworkError(session, schedule);
+        return;
+      }
       showMessage(
         code === 'permission-denied'
           ? 'Presensi ditolak oleh Firestore'
@@ -239,11 +298,15 @@ export default function PraktikanJadwalScreen() {
                 label: 'Ajukan Izin',
                 onPress: () => router.push('/praktikan/izin'),
               },
+              {
+                label: 'Pemberitahuan',
+                onPress: () => router.push('/praktikan/notifikasi'),
+              },
             ]}
             stats={[
               { label: 'Semua Jadwal', value: schedules.length, active: scheduleFilter === 'all', onPress: () => selectScheduleFilter('all') },
               { label: 'Sesi Dibuka', value: openSessionCount, active: scheduleFilter === 'open', onPress: () => selectScheduleFilter('open') },
-              { label: 'Absensi', value: myAttendance.length, active: scheduleFilter === 'recorded', onPress: () => selectScheduleFilter('recorded') },
+              { label: 'Absensi', value: recordedScheduleCount, active: scheduleFilter === 'recorded', onPress: () => selectScheduleFilter('recorded') },
             ]}
           />
 
@@ -258,6 +321,17 @@ export default function PraktikanJadwalScreen() {
               <ThemedText style={styles.feedbackToastText}>
                 {feedbackMessage}
               </ThemedText>
+              {retryableCheckIn ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => void handleCheckIn(retryableCheckIn.session, retryableCheckIn.schedule)}
+                  style={styles.feedbackRetryButton}
+                >
+                  <ThemedText type="smallBold" style={styles.feedbackRetryText}>
+                    Coba lagi
+                  </ThemedText>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
 
@@ -867,6 +941,14 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
     textAlign: "center",
+  },
+  feedbackRetryButton: {
+    alignSelf: 'flex-start',
+    paddingTop: Spacing.one,
+  },
+  feedbackRetryText: {
+    color: '#E5D7C4',
+    textDecorationLine: 'underline',
   },
   topBigCapsule: {
     backgroundColor: '#354024',

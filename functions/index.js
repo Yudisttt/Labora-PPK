@@ -26,7 +26,24 @@ async function getPushTargets(userIds) {
   );
 }
 
+async function saveInAppNotifications(userIds, notification) {
+  const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+  const eventKey = encodeURIComponent(notification.eventId);
+  await Promise.all(
+    uniqueUserIds.map((userId) =>
+      db.collection('users').doc(userId).collection('notifications').doc(eventKey).set({
+        title: notification.title,
+        body: notification.body,
+        type: notification.data.type,
+        destination: notification.data.destination,
+        createdAt: new Date(),
+      }, { merge: true }),
+    ),
+  );
+}
+
 async function sendPushNotifications(userIds, notification) {
+  await saveInAppNotifications(userIds, notification);
   const targets = await getPushTargets(userIds);
   for (let offset = 0; offset < targets.length; offset += EXPO_PUSH_BATCH_SIZE) {
     const batch = targets.slice(offset, offset + EXPO_PUSH_BATCH_SIZE);
@@ -88,15 +105,17 @@ exports.notifyWhenSessionOpens = onDocumentUpdated('sessions/{sessionId}', async
   const userIds = await getClassParticipantIds(schedule.classId);
 
   await sendPushNotifications(userIds, {
+    eventId: event.id,
     title: 'Presensi dibuka',
     body: `${schedule.praktikum} · ${schedule.kelas}: presensi sudah dibuka.`,
     data: { type: 'session_open', destination: 'praktikan/jadwal' },
   });
 });
 
-async function notifyScheduleChange(scheduleId, schedule) {
+async function notifyScheduleChange(scheduleId, schedule, eventId) {
   const userIds = await getClassParticipantIds(schedule.classId);
   await sendPushNotifications(userIds, {
+    eventId,
     title: 'Perubahan jadwal praktikum',
     body: `${schedule.praktikum} · ${schedule.kelas}: jadwal berubah. Periksa jadwal terbaru.`,
     data: { type: 'schedule_changed', scheduleId, destination: 'praktikan/jadwal' },
@@ -105,7 +124,7 @@ async function notifyScheduleChange(scheduleId, schedule) {
 
 exports.notifyWhenScheduleCreated = onDocumentCreated('schedules/{scheduleId}', async (event) => {
   const schedule = event.data.data();
-  await notifyScheduleChange(event.params.scheduleId, schedule);
+  await notifyScheduleChange(event.params.scheduleId, schedule, event.id);
 });
 
 exports.notifyWhenScheduleChanges = onDocumentUpdated('schedules/{scheduleId}', async (event) => {
@@ -116,7 +135,7 @@ exports.notifyWhenScheduleChanges = onDocumentUpdated('schedules/{scheduleId}', 
   ];
   const changed = scheduleFields.some((field) => before[field] !== after[field]);
   if (!changed) return;
-  await notifyScheduleChange(event.params.scheduleId, after);
+  await notifyScheduleChange(event.params.scheduleId, after, event.id);
 });
 
 exports.notifyWhenPermissionIsDecided = onDocumentUpdated(
@@ -128,6 +147,7 @@ exports.notifyWhenPermissionIsDecided = onDocumentUpdated(
 
     const approved = after.status === 'approved';
     await sendPushNotifications([after.userId], {
+      eventId: event.id,
       title: approved ? 'Pengajuan izin diterima' : 'Pengajuan izin ditolak',
       body: approved
         ? 'Pengajuan izin praktikum kamu telah diterima.'

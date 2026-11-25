@@ -115,6 +115,11 @@ service cloud.firestore {
           && request.resource.data.token is string
           && request.resource.data.platform in ['ios', 'android'];
       }
+
+      match /notifications/{notificationId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
     }
 
     match /classes/{classId} {

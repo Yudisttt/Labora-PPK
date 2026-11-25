@@ -40,7 +40,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Labora menggunakan lokasi untuk memastikan presensi dilakukan di laboratorium."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
