@@ -105,6 +105,7 @@ export type LaboratoryLocation = Coordinates & {
 };
 
 
+
 export type CheckInResult =
   | { ok: true; record: AttendanceRecord }
   | { ok: false; reason: CheckInFailureReason };
