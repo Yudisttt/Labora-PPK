@@ -1,4 +1,4 @@
-import { Redirect, router, Stack } from 'expo-router';
+import { Redirect, Stack } from 'expo-router';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { FloatingNavBar, type TabItem } from '@/components/floating-nav-bar';
@@ -12,14 +12,11 @@ const asistenTabs: TabItem[] = [
     route: '/asisten/jadwal',
   },
   {
-    key: 'kelola',
-    label: 'Kembali',
-    iconName: 'arrow-back',
-    route: '/asisten/kelola-data',
+    key: 'riwayat-presensi',
+    label: 'Riwayat',
+    iconName: 'time-outline',
+    route: '/asisten/riwayat-presensi',
     isCenter: true,
-    onPress: () => router.canGoBack()
-      ? router.back()
-      : router.replace('/asisten/jadwal'),
   },
   {
     key: 'izin',

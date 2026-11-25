@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Pressable,
@@ -276,6 +277,13 @@ export default function KelolaJadwalScreen() {
               ))
             )}
           </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal')}
+            style={({ pressed }) => [styles.backButton, { borderColor: theme.glassBorder, backgroundColor: theme.glassCard }, pressed && styles.pressed]}
+          >
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>← Kembali</ThemedText>
+          </Pressable>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -353,6 +361,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
     gap: Spacing.three,
+  },
+  backButton: {
+    alignSelf: 'center',
+    minWidth: 136,
+    alignItems: 'center',
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.two,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   calendarCard: {
     padding: Spacing.three,

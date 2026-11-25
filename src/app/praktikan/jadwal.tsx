@@ -1,1213 +1,507 @@
-import { router } from "expo-router";
-import { useState } from "react";
-import {
-  Alert,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native';
+import { BlurView } from 'expo-blur';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SessionStatusBadge } from "@/components/session-status-badge";
-import {
-  DashboardCapsule,
-  DashboardTabs,
-} from "@/components/dashboard-ui";
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-import { Spacing, Fonts } from "@/constants/theme";
-import { useTheme } from "@/hooks/use-theme";
-import { useApp } from "@/state/app-context";
-import type { Schedule, Session } from "@/types";
-import { formatDate, formatDateTime, formatTime } from "@/utils/format";
+import { DashboardCapsule, DashboardTabs } from '@/components/dashboard-ui';
+import { SessionStatusBadge } from '@/components/session-status-badge';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import { useApp } from '@/state/app-context';
+import { subscribeToPermissionRequestsForUser } from '@/services/permission-requests';
+import type { AttendanceRecord, PermissionRequest, Schedule, Session } from '@/types';
+import { formatDate, formatDateTime } from '@/utils/format';
 
-type TabMode = "jadwal" | "riwayat";
-type ScheduleFilter = "all" | "open" | "recorded";
+const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+const CALENDAR_PAGE_SIZE = 30;
+const CALENDAR_INITIAL_INDEX = CALENDAR_PAGE_SIZE;
+const CALENDAR_ITEM_WIDTH = 66;
+
+function getCalendarDays(startDate: Date, count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() + index);
+    const day = DAY_NAMES[date.getDay()];
+    return { day, shortDay: day.slice(0, 3), dateNumber: date.getDate(), date };
+  });
+}
+
+function getTimePeriod(time: string): 'Pagi' | 'Siang' | 'Sore' {
+  const hour = Number(time.slice(0, 2));
+  if (hour < 11) return 'Pagi';
+  if (hour < 15) return 'Siang';
+  return 'Sore';
+}
+
+function getDayName(date: string) {
+  const [year, month, day] = date.slice(0, 10).split('-').map(Number);
+  if (!year || !month || !day) return '';
+  return DAY_NAMES[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+}
+
+function getHistoryStatus(
+  record: AttendanceRecord | undefined,
+  session: Session,
+  requests: PermissionRequest[],
+  sessionDate: string,
+  todayDateKey: string,
+): 'Hadir' | 'Izin' | 'Sakit' | 'Alpha' | null {
+  if (record?.status === 'present') return 'Hadir';
+  if (record?.status === 'excused') {
+    const reason = record.permissionRequestId
+      ? requests.find((request) => request.id === record.permissionRequestId)?.reason ?? ''
+      : '';
+    return /sakit|dokter|medis/i.test(reason) ? 'Sakit' : 'Izin';
+  }
+  return session.status === 'closed' || sessionDate.slice(0, 10) < todayDateKey ? 'Alpha' : null;
+}
+
+type WeeklySchedule = {
+  key: string;
+  praktikum: string;
+  kelas: string;
+  ruang: string;
+  startTime: string;
+  endTime: string;
+  days: Set<string>;
+  entries: Schedule[];
+};
+
+type DashboardFilter = 'alpha' | null;
+
+function groupWeeklySchedules(schedules: Schedule[]) {
+  const groups = new Map<string, WeeklySchedule>();
+  for (const schedule of schedules) {
+    const key = [schedule.praktikum, schedule.kelas, schedule.ruang, schedule.startTime, schedule.endTime].join('|');
+    const group = groups.get(key) ?? {
+      key,
+      praktikum: schedule.praktikum,
+      kelas: schedule.kelas,
+      ruang: schedule.ruang,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      days: new Set<string>(),
+      entries: [],
+    };
+    const dayName = getDayName(schedule.date);
+    if (dayName) group.days.add(dayName);
+    group.entries.push(schedule);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((a, b) => {
+    const firstDayA = a.days.values().next().value;
+    const firstDayB = b.days.values().next().value;
+    return DAY_NAMES.indexOf(firstDayA ?? '') - DAY_NAMES.indexOf(firstDayB ?? '') ||
+      a.startTime.localeCompare(b.startTime);
+  });
+}
 
 export default function PraktikanJadwalScreen() {
+  const { view } = useLocalSearchParams<{ view?: string }>();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const {
-    currentUser,
-    schedules,
-    sessions,
-    checkIn,
-    hasCheckedIn,
-    isExcused,
-    getUser,
-    getSessionsForSchedule,
-    getAttendanceForUser,
-  } = useApp();
-
-  const [activeTab, setActiveTab] = useState<TabMode>("jadwal");
-  const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>("all");
-  const [expandedHistoryScheduleId, setExpandedHistoryScheduleId] = useState<
-    string | null
-  >(null);
-  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(
-    null,
-  );
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-
+  const { currentUser, schedules, sessions, getAttendanceForUser, getUser } = useApp();
+  const [activeTab, setActiveTab] = useState<'jadwal' | 'riwayat'>('jadwal');
+  const [dashboardFilter, setDashboardFilter] = useState<DashboardFilter>(null);
+  const currentFilter: DashboardFilter = view === 'alpha' ? 'alpha' : dashboardFilter;
+  const currentTab = view === 'alpha' ? 'riwayat' : activeTab;
+  const [expandedPracticum, setExpandedPracticum] = useState<string | null>(null);
+  const [permissionRequests, setPermissionRequests] = useState<PermissionRequest[]>([]);
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
+  const [calendarStartDate, setCalendarStartDate] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), today.getDate() - CALENDAR_INITIAL_INDEX);
+  });
+  const [calendarDayCount, setCalendarDayCount] = useState(CALENDAR_PAGE_SIZE * 2 + 1);
+  const calendarRef = useRef<ScrollViewInstance>(null);
+  const scrollOffset = useRef(0);
+  const scrollCorrection = useRef<number | null>(null);
+  const didSetInitialScroll = useRef(false);
+  const updatingCalendar = useRef(false);
+  const calendarDays = getCalendarDays(calendarStartDate, calendarDayCount);
+  const selectedDay = DAY_NAMES[selectedDate.getDay()];
+  const selectedDateKey = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  const todayDateKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const weeklySchedules = groupWeeklySchedules(schedules);
+  const openSessionCount = sessions.filter((session) => session.status === 'open').length;
   const myAttendance = currentUser ? getAttendanceForUser(currentUser.id) : [];
-  const historyGroups = new Map<
-    string,
-    { schedule: Schedule; scheduleIds: Set<string> }
-  >();
-  schedules.forEach((schedule) => {
-    const key = `${schedule.praktikum.trim().toLocaleLowerCase()}::${schedule.kelas.trim().toLocaleLowerCase()}`;
-    const existingGroup = historyGroups.get(key);
-    if (existingGroup) {
-      existingGroup.scheduleIds.add(schedule.id);
-    } else {
-      historyGroups.set(key, {
-        schedule,
-        scheduleIds: new Set([schedule.id]),
-      });
-    }
-  });
-  const historyBySchedule = [...historyGroups.values()].map(
-    ({ schedule, scheduleIds }) => ({
-      schedule,
-      records: myAttendance.filter((record) => {
-        const session = sessions.find((item) => item.id === record.sessionId);
-        return session ? scheduleIds.has(session.scheduleId) : false;
-      }),
-    }),
+  const practicumSchedules = schedules.filter((schedule) =>
+    schedule.status !== 'cancelled' && !schedule.replacementScheduleId,
   );
-
-  const openSessions = sessions.filter((s) => s.status === "open");
-  const openSessionCount = openSessions.length;
-  const filteredSchedules = schedules.filter((schedule) => {
-    if (scheduleFilter === "all") return true;
-
-    const session = getSessionsForSchedule(schedule.id)[0];
-    if (scheduleFilter === "open") return session?.status === "open";
-
-    return Boolean(
-      session &&
-        currentUser &&
-        (hasCheckedIn(session.id, currentUser.id) ||
-          isExcused(session.id, currentUser.id)),
-    );
+  const allPracticumMeetings = practicumSchedules.map((schedule) => {
+    const session = sessions.find((item) => item.scheduleId === schedule.id) ?? {
+      id: `session_${schedule.id}`,
+      scheduleId: schedule.id,
+      status: 'scheduled' as const,
+      openedAt: null,
+      closedAt: null,
+    };
+    const record = myAttendance.find((item) => item.sessionId === session.id);
+    return { schedule, session, record };
+  }).sort((a, b) => `${a.schedule.date}${a.schedule.startTime}`.localeCompare(`${b.schedule.date}${b.schedule.startTime}`));
+  const meetingHistory = allPracticumMeetings
+    .filter(({ schedule }) => schedule.date.slice(0, 10) <= todayDateKey)
+    .sort((a, b) => `${a.schedule.date}${a.schedule.startTime}`.localeCompare(`${b.schedule.date}${b.schedule.startTime}`));
+  const historyGroups = new Map<string, { schedules: Schedule[]; meetings: typeof meetingHistory }>();
+  allPracticumMeetings.forEach((meeting) => {
+    const group = historyGroups.get(meeting.schedule.praktikum) ?? { schedules: [], meetings: [] };
+    group.schedules.push(meeting.schedule);
+    if (meeting.schedule.date.slice(0, 10) <= todayDateKey) group.meetings.push(meeting);
+    historyGroups.set(meeting.schedule.praktikum, group);
   });
+  const historyByPracticum = [...historyGroups.entries()].map(([praktikum, group]) => ({ praktikum, ...group }));
+  const alphaCount = meetingHistory.filter(({ schedule, session, record }) =>
+    getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Alpha',
+  ).length;
+  const visibleHistoryGroups = historyByPracticum
+    .map(({ praktikum, schedules: practicumEntries, meetings }) => ({
+      praktikum,
+      schedules: practicumEntries,
+      meetings: currentFilter === 'alpha'
+        ? meetings.filter(({ schedule, session, record }) =>
+            getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Alpha',
+          )
+        : meetings,
+    }))
+    .filter(({ meetings }) => currentFilter !== 'alpha' || meetings.length > 0);
+  const availableSchedules = weeklySchedules.filter((schedule) =>
+    schedule.days.has(selectedDay),
+  );
+  const periods = (['Pagi', 'Siang', 'Sore'] as const).map((period) => ({
+    period,
+    schedules: availableSchedules.filter((schedule) => getTimePeriod(schedule.startTime) === period),
+  })).filter((group) => group.schedules.length > 0);
 
-  function selectScheduleFilter(filter: ScheduleFilter) {
-    setScheduleFilter(filter);
-    setActiveTab("jadwal");
-  }
-
-  const activeModalSession = selectedSchedule
-    ? getSessionsForSchedule(selectedSchedule.id)[0]
-    : null;
-
-  const isCheckedInForActiveModal =
-    activeModalSession && currentUser
-      ? hasCheckedIn(activeModalSession.id, currentUser.id)
-      : false;
-  const isExcusedForActiveModal =
-    activeModalSession && currentUser
-      ? isExcused(activeModalSession.id, currentUser.id)
-      : false;
-
-  function showMessage(title: string, message: string) {
-    if (Platform.OS === "web") {
-      setFeedbackMessage(`${title}: ${message}`);
-      setTimeout(() => setFeedbackMessage(null), 3500);
-    } else {
-      Alert.alert(title, message);
-    }
-  }
-
-  async function handleCheckIn(session: Session, schedule: Schedule) {
+  useEffect(() => {
     if (!currentUser) return;
+    return subscribeToPermissionRequestsForUser(
+      currentUser.id,
+      setPermissionRequests,
+      () => setPermissionRequests([]),
+    );
+  }, [currentUser]);
 
-    if (session.status !== "open") {
-      showMessage(
-        "Presensi Belum Dibuka",
-        "Sesi praktikum ini belum dibuka oleh asisten lab.",
-      );
-      return;
+  useEffect(() => {
+    if (scrollCorrection.current !== null) {
+      const correctedOffset = Math.max(0, scrollOffset.current + scrollCorrection.current);
+      scrollOffset.current = correctedOffset;
+      calendarRef.current?.scrollTo({ x: correctedOffset, animated: false });
+      scrollCorrection.current = null;
+      updatingCalendar.current = false;
     }
+  }, [calendarStartDate, calendarDayCount]);
 
-    if (hasCheckedIn(session.id, currentUser.id)) {
-      showMessage(
-        "Sudah Presensi",
-        "Anda sudah melakukan presensi pada sesi ini sebelumnya.",
-      );
-      return;
-    }
-    if (isExcused(session.id, currentUser.id)) {
-      showMessage(
-        'Izin Disetujui',
-        'Pengajuan izin untuk sesi ini sudah disetujui. Kamu tidak perlu presensi manual.',
-      );
-      return;
-    }
+  function handleCalendarScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    scrollOffset.current = contentOffset.x;
+    if (updatingCalendar.current) return;
 
-    let result: Awaited<ReturnType<typeof checkIn>>;
-    try {
-      result = await checkIn(session.id, currentUser.id);
-    } catch (error) {
-      const code =
-        error instanceof Error && 'code' in error
-          ? String(error.code)
-          : '';
-      showMessage(
-        code === 'permission-denied'
-          ? 'Presensi ditolak oleh Firestore'
-          : 'Presensi gagal',
-        code === 'permission-denied'
-          ? 'Aturan Firestore untuk attendance menolak pembacaan atau penyimpanan. Pastikan firestore.rules terbaru sudah dipublikasikan pada project labora-89bf3.'
-          : error instanceof Error
-            ? error.message
-            : 'Periksa koneksi lalu coba lagi.',
-      );
-      return;
-    }
-
-    if (result.ok) {
-      showMessage(
-        "Presensi Berhasil",
-        `Kehadiran Anda pada ${schedule.praktikum} (${schedule.kelas}) tercatat pada ${formatTime(result.record.checkedInAt ?? new Date().toISOString())}.`,
-      );
-      return;
-    }
-
-    if (result.reason === "already-checked-in") {
-      showMessage(
-        "Sudah Presensi",
-        "Kamu sudah melakukan presensi pada sesi ini.",
-      );
-    } else if (result.reason === "not-open") {
-      showMessage(
-        "Presensi Belum Dibuka",
-        "Sesi praktikum belum dibuka atau sudah ditutup.",
-      );
-    } else if (result.reason === "unknown-session") {
-      showMessage("Gagal", "Sesi praktikum tidak ditemukan.");
-    } else if (result.reason === "excused") {
-      showMessage(
-        'Izin Disetujui',
-        'Kamu sudah berstatus izin untuk sesi ini dan tidak perlu presensi manual.',
-      );
-    } else if (result.reason === "unauthorized") {
-      showMessage(
-        "Akses Ditolak",
-        "Kamu tidak memiliki akses untuk melakukan presensi.",
-      );
-    }  else if (result.reason === "outside-window") {
-      showMessage(
-        "Waktu Habis",
-        "Waktu praktikum sudah berakhir. Presensi tidak dapat dilakukan.",
-      );
-    } else if (result.reason === "invalid-role") {
-      showMessage(
-        "Akses Ditolak",
-        "Hanya praktikan yang dapat melakukan presensi.",
-      );
+    if (contentOffset.x < 160) {
+      updatingCalendar.current = true;
+      scrollCorrection.current = CALENDAR_PAGE_SIZE * CALENDAR_ITEM_WIDTH;
+      setCalendarStartDate((start) => new Date(start.getFullYear(), start.getMonth(), start.getDate() - CALENDAR_PAGE_SIZE));
+      setCalendarDayCount((count) => count + CALENDAR_PAGE_SIZE);
+    } else if (contentSize.width - (contentOffset.x + layoutMeasurement.width) < 160) {
+      updatingCalendar.current = true;
+      scrollCorrection.current = 0;
+      setCalendarDayCount((count) => count + CALENDAR_PAGE_SIZE);
     }
   }
 
   return (
-    <ThemedView
-      style={[
-        styles.screen,
-        {
-          backgroundImage: `linear-gradient(180deg, ${theme.glassInput} 0%, ${theme.background} 58%, ${theme.primary} 100%)`,
-        },
-      ]}>
-      <SafeAreaView style={styles.safeArea} edges={["top"]}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: insets.bottom + 90 },
-          ]}
-        >
-          {/* Top Big Dark Capsule Container (Persis Desain Figma) */}
+    <ThemedView style={styles.screen}>
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 96 }]}>
           <DashboardCapsule
             title="Jadwal & Presensi"
             subtitle="Pantau kehadiran dan sesi aktifmu hari ini"
-            actions={[
-              {
-                label: 'Ajukan Izin',
-                onPress: () => router.push('/praktikan/izin'),
-              },
-            ]}
+            actions={[{ label: 'Ajukan Izin', onPress: () => router.push('/praktikan/izin') }]}
             stats={[
-              { label: 'Semua Jadwal', value: schedules.length, active: scheduleFilter === 'all', onPress: () => selectScheduleFilter('all') },
-              { label: 'Sesi Dibuka', value: openSessionCount, active: scheduleFilter === 'open', onPress: () => selectScheduleFilter('open') },
-              { label: 'Absensi', value: myAttendance.length, active: scheduleFilter === 'recorded', onPress: () => selectScheduleFilter('recorded') },
+              { label: 'Semua Jadwal', value: schedules.length, active: currentTab === 'jadwal' && currentFilter !== 'alpha', onPress: () => { router.setParams({ view: undefined }); setDashboardFilter(null); setActiveTab('jadwal'); } },
+              { label: 'Sesi Dibuka', value: openSessionCount, active: false, onPress: () => router.navigate('/praktikan/presensi') },
+              { label: 'Absensi', value: alphaCount, active: currentFilter === 'alpha', onPress: () => router.setParams({ view: 'alpha' }) },
             ]}
           />
 
-          {/* Feedback toast */}
-          {feedbackMessage ? (
-            <View
-              style={[
-                styles.feedbackToast,
-                { backgroundColor: theme.primary, borderColor: theme.border },
-              ]}
-            >
-              <ThemedText style={styles.feedbackToastText}>
-                {feedbackMessage}
-              </ThemedText>
-            </View>
-          ) : null}
+          {currentFilter !== 'alpha' ? <ScrollView
+            ref={calendarRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.daySelector}
+            scrollEventThrottle={16}
+            onScroll={handleCalendarScroll}
+            onContentSizeChange={() => {
+              if (!didSetInitialScroll.current) {
+                const initialOffset = CALENDAR_INITIAL_INDEX * CALENDAR_ITEM_WIDTH;
+                calendarRef.current?.scrollTo({ x: initialOffset, animated: false });
+                scrollOffset.current = initialOffset;
+                didSetInitialScroll.current = true;
+              }
+            }}>
+            {calendarDays.map(({ day, shortDay, dateNumber, date }) => {
+              const selected = selectedDate.toDateString() === date.toDateString();
+              return (
+                <Pressable
+                  key={date.toISOString()}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => setSelectedDate(date)}
+                  style={[styles.dayChip, selected && styles.dayChipSelected, {
+                    backgroundColor: selected ? theme.primary : 'rgba(255, 255, 255, 0.14)',
+                    borderColor: selected ? 'rgba(255, 255, 255, 0.92)' : 'rgba(255, 255, 255, 0.52)',
+                    ...(Platform.OS === 'web' && !selected ? ({ backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' } as object) : {}),
+                  }]}>
+                  <ThemedText type="smallBold" style={{ color: selected ? theme.primaryText : theme.primary }}>{shortDay}</ThemedText>
+                  <ThemedText type="smallBold" style={{ color: selected ? theme.primaryText : theme.primary }}>{dateNumber}</ThemedText>
+                </Pressable>
+              );
+            })}
+          </ScrollView> : null}
 
-          {/* Asymmetric Nav Tabs Container (Jadwal Praktikum vs Riwayat Kehadiran) */}
           <DashboardTabs
             tabs={[
-              { key: 'jadwal', label: 'Jadwal Praktikum', active: activeTab === 'jadwal', onPress: () => setActiveTab('jadwal') },
-              { key: 'riwayat', label: 'Riwayat Kehadiran', active: activeTab === 'riwayat', onPress: () => setActiveTab('riwayat') },
+              { key: 'jadwal', label: 'Jadwal Praktikum', active: currentTab === 'jadwal', onPress: () => { router.setParams({ view: undefined }); setDashboardFilter(null); setActiveTab('jadwal'); } },
+              { key: 'riwayat', label: 'Riwayat Presensi', active: currentTab === 'riwayat', onPress: () => { router.setParams({ view: undefined }); setDashboardFilter(null); setActiveTab('riwayat'); } },
             ]}
           />
 
-          {/* TAB CONTENT: JADWAL & DETAIL SESI */}
-          {activeTab === "jadwal" && (
-            <View style={styles.list}>
-              {filteredSchedules.length === 0 ? (
+          {currentTab === 'riwayat' ? (
+            <View style={styles.historyList}>
+              {visibleHistoryGroups.length === 0 ? (
                 <ThemedView type="backgroundElement" style={styles.empty}>
-                  <ThemedText type="smallBold">
-                    {schedules.length === 0
-                      ? "Belum ada jadwal praktikum"
-                      : "Tidak ada jadwal untuk filter ini"}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {schedules.length === 0
-                      ? "Jadwal praktikum akan ditampilkan di sini."
-                      : "Pilih ringkasan lain untuk melihat jadwal."}
-                  </ThemedText>
+                  <ThemedText type="smallBold">{currentFilter === 'alpha' ? 'Tidak ada absensi alpha' : 'Belum ada riwayat presensi'}</ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">{currentFilter === 'alpha' ? 'Sesi berstatus alpha akan muncul di sini.' : 'Riwayat pertemuan akan muncul setelah tanggal sesinya tiba.'}</ThemedText>
                 </ThemedView>
-              ) : (
-                filteredSchedules.map((schedule) => {
-                  const session = getSessionsForSchedule(schedule.id)[0];
-                  const isOpen = session?.status === "open";
-                  const isCheckedIn =
-                    session && currentUser
-                      ? hasCheckedIn(session.id, currentUser.id)
-                      : false;
-                  const isExcusedForSchedule =
-                    session && currentUser
-                      ? isExcused(session.id, currentUser.id)
-                      : false;
-                  const assistant = getUser(schedule.assistantId);
+              ) : visibleHistoryGroups.map(({ praktikum, schedules: practicumEntries, meetings }) => {
+                const expanded = expandedPracticum === praktikum;
+                const presentCount = meetings.filter(({ record, session, schedule }) => getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Hadir').length;
+                const excusedCount = meetings.filter(({ record, session, schedule }) => getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Izin').length;
+                const sickCount = meetings.filter(({ record, session, schedule }) => getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Sakit').length;
+                const absentCount = meetings.filter(({ record, session, schedule }) => getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Alpha').length;
+                const classes = [...new Set(practicumEntries.map((schedule) => schedule.kelas))].join(', ');
+                const laboratories = [...new Set(practicumEntries.map((schedule) => schedule.ruang))].join(', ');
 
-                  return (
-                    <View
-                      key={schedule.id}
-                      style={[
-                        styles.card,
-                        {
-                          backgroundColor: 'rgba(247, 241, 231, 0.62)',
-                          backgroundImage: `linear-gradient(145deg, rgba(255, 255, 255, 0.92) 0%, rgba(247, 241, 231, 0.78) 36%, rgba(237, 228, 213, 0.72) 100%)`,
-                          borderColor: theme.glassBorderHighlight,
-                          ...(Platform.OS === 'web'
-                            ? ({ backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' } as object)
-                            : {}),
-                        },
-                        isOpen && styles.cardHighlight,
-                      ]}
-                    >
-                      {/* Header Card */}
-                      <View style={styles.cardHeader}>
-                        <View style={styles.cardHeaderTitle}>
-                          <ThemedText
-                            type="subtitle"
-                            style={styles.praktikumTitle}
-                          >
-                            {schedule.praktikum}
-                          </ThemedText>
-                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
-                            {schedule.kelas} · {schedule.ruang}
-                          </ThemedText>
-                        </View>
-                        <SessionStatusBadge
-                          status={session?.status ?? "scheduled"}
-                        />
-                      </View>
-
-                      {/* Detail Info Waktu & Tanggal */}
-                      <View style={styles.infoRow}>
-                        <View style={styles.infoItem}>
-                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
-                            Waktu
-                          </ThemedText>
-                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                            {schedule.startTime} - {schedule.endTime} WIB
-                          </ThemedText>
-                        </View>
-                        <View style={styles.infoDivider} />
-                        <View style={styles.infoItem}>
-                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
-                            Tanggal
-                          </ThemedText>
-                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                            {formatDate(schedule.date)}
-                          </ThemedText>
-                        </View>
-                      </View>
-
-                      {/* Asisten Lab */}
-                      {assistant ? (
-                        <View style={styles.assistantBadge}>
-                          <ThemedText type="small" style={{ color: theme.textSecondary, opacity: 0.82 }}>
-                            Asisten Pengampu:
-                          </ThemedText>
-                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                            {assistant.name}
-                          </ThemedText>
-                        </View>
-                      ) : null}
-
-                      {/* Action Buttons: Detail & Presensi */}
-                      <View style={styles.actionRow}>
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => setSelectedSchedule(schedule)}
-                          style={({ pressed }) => [
-                            styles.detailButton,
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                            Lihat Detail Sesi
-                          </ThemedText>
-                        </Pressable>
-
-                        {/* Tombol Presensi Realtime */}
-                        {isExcusedForSchedule ? (
-                          <View
-                            style={[
-                              styles.checkedInBadge,
-                              { backgroundColor: theme.warningSoft },
-                            ]}>
-                            <ThemedText
-                              type="smallBold"
-                              style={{ color: theme.text }}>
-                              Izin Disetujui
-                            </ThemedText>
-                          </View>
-                        ) : isOpen ? (
-                          isCheckedIn ? (
-                            <View
-                              style={[
-                                styles.checkedInBadge,
-                                { backgroundColor: theme.successSoft },
-                              ]}
-                            >
-                              <ThemedText
-                                type="smallBold"
-                                style={{ color: theme.success }}
-                              >
-                                Sudah Presensi
-                              </ThemedText>
-                            </View>
-                          ) : (
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={() =>
-                                session && handleCheckIn(session, schedule)
-                              }
-                              style={({ pressed }) => [
-                                styles.checkInButton,
-                                { backgroundColor: theme.success },
-                                pressed && styles.pressed,
-                              ]}
-                            >
-                              <ThemedText
-                                type="smallBold"
-                                style={{ color: "#FFFFFF" }}
-                              >
-                                Presensi Sekarang
-                              </ThemedText>
-                            </Pressable>
-                          )
-                        ) : session?.status === "closed" ? (
-                          isCheckedIn ? (
-                            <View
-                              style={[
-                                styles.checkedInBadge,
-                                { backgroundColor: theme.successSoft },
-                              ]}
-                            >
-                              <ThemedText
-                                type="smallBold"
-                                style={{ color: theme.success }}
-                              >
-                                Hadir
-                              </ThemedText>
-                            </View>
-                          ) : (
-                            <View
-                              style={[
-                                styles.checkedInBadge,
-                                { backgroundColor: theme.dangerSoft },
-                              ]}
-                            >
-                              <ThemedText
-                                type="smallBold"
-                                style={{ color: theme.danger }}
-                              >
-                                Tidak Hadir (Sesi Ditutup)
-                              </ThemedText>
-                            </View>
-                          )
-                        ) : (
-                          <View
-                            style={[
-                              styles.checkedInBadge,
-                              { backgroundColor: theme.backgroundSelected },
-                            ]}
-                          >
-                            <ThemedText type="small" themeColor="textSecondary">
-                              Menunggu Sesi Dibuka
-                            </ThemedText>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  );
-                })
-              )}
-            </View>
-          )}
-
-          {/* TAB CONTENT: CATATAN & RIWAYAT KEHADIRAN */}
-          {activeTab === "riwayat" && (
-            <View style={styles.list}>
-              {schedules.length === 0 ? (
-                <ThemedView type="backgroundElement" style={styles.empty}>
-                  <ThemedText type="smallBold">
-                    Belum Ada Jadwal Praktikum
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    Jadwal praktikum akan ditampilkan di sini.
-                  </ThemedText>
-                </ThemedView>
-              ) : (
-                historyBySchedule.map(({ schedule, records }) => {
-                  const isExpanded = expandedHistoryScheduleId === schedule.id;
-                  return (
+                return (
+                  <BlurView key={praktikum} intensity={68} tint="light" style={[styles.historyCard, { backgroundColor: 'rgba(255,255,255,0.54)', borderColor: expanded ? '#FFFFFF' : 'rgba(255,255,255,0.96)' }]}>
                     <Pressable
-                      key={schedule.id}
                       accessibilityRole="button"
-                      accessibilityState={{ expanded: isExpanded }}
-                      onPress={() =>
-                        setExpandedHistoryScheduleId(
-                          isExpanded ? null : schedule.id,
-                        )
-                      }
-                      style={({ pressed }) => [
-                        styles.historyCard,
-                        {
-                          backgroundColor: theme.glassInput,
-                          borderColor: isExpanded
-                            ? theme.primary
-                            : theme.glassBorder,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <View style={styles.historyHeader}>
-                        <View style={{ flex: 1, gap: Spacing.half }}>
-                          <ThemedText
-                            type="smallBold"
-                            style={styles.historyTitle}
-                          >
-                            {schedule.praktikum}
-                          </ThemedText>
-                          <ThemedText type="small" themeColor="textSecondary">
-                            {schedule.kelas} · {schedule.ruang}
-                          </ThemedText>
-                        </View>
-                        <View
-                          style={[
-                            styles.historyCount,
-                            {
-                              backgroundColor: isExpanded
-                                ? theme.primary
-                                : theme.moss,
-                            },
-                          ]}
-                        >
-                          <ThemedText
-                            type="smallBold"
-                            style={{ color: theme.primaryText }}
-                          >
-                            {records.length} catatan
-                          </ThemedText>
-                        </View>
+                      accessibilityState={{ expanded }}
+                      onPress={() => setExpandedPracticum(expanded ? null : praktikum)}
+                      style={styles.historyToggle}>
+                      <View style={styles.historyTitleBlock}>
+                        <ThemedText type="smallBold">{praktikum}</ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">{classes}{laboratories ? ` · ${laboratories}` : ''}</ThemedText>
                       </View>
-
-                      {isExpanded ? (
-                        records.length === 0 ? (
-                          <ThemedText
-                            type="small"
-                            themeColor="textSecondary"
-                            style={styles.emptyHistoryMessage}
-                          >
-                            Belum ada riwayat presensi untuk praktikum ini.
-                          </ThemedText>
-                        ) : (
-                          <View style={styles.historyRecords}>
-                            {records.map((record) => {
-                              const session = sessions.find(
-                                (item) => item.id === record.sessionId,
-                              );
-
-                              return (
-                                <View
-                                  key={record.id}
-                                  style={[
-                                    styles.historyRecord,
-                                    {
-                                      backgroundColor: theme.background,
-                                      borderColor: theme.border,
-                                    },
-                                  ]}
-                                >
-                                  <View style={styles.historyMetaRow}>
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary"
-                                    >
-                                      {record.status === 'excused'
-                                        ? 'Status Izin'
-                                        : 'Waktu Presensi'}
-                                    </ThemedText>
-                                    <ThemedText
-                                      type="smallBold"
-                                      style={{
-                                        flexShrink: 1,
-                                        maxWidth: '70%',
-                                        textAlign: 'right',
-                                      }}>
-                                      {record.status === 'excused'
-                                        ? 'Disetujui'
-                                        : record.checkedInAt
-                                          ? `${formatDateTime(record.checkedInAt)} WIB`
-                                          : 'Waktu tidak tersedia'}
-                                    </ThemedText>
-                                  </View>
-                                  <View style={styles.historyMetaRow}>
-                                    <ThemedText
-                                      type="small"
-                                      themeColor="textSecondary"
-                                    >
-                                      Status Sesi
-                                    </ThemedText>
-                                    <SessionStatusBadge
-                                      status={session?.status ?? "scheduled"}
-                                    />
-                                  </View>
-                                </View>
-                              );
-                            })}
-                          </View>
-                        )
-                      ) : null}
+                      <ThemedText type="smallBold" themeColor="textSecondary">{expanded ? '⌃' : '⌄'}</ThemedText>
                     </Pressable>
-                  );
-                })
-              )}
-            </View>
-          )}
-
-          {/* MODAL DETAIL SESI PRAKTIKUM */}
-          <Modal
-            visible={!!selectedSchedule}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setSelectedSchedule(null)}
-          >
-            <View style={styles.modalBackdrop}>
-              <Pressable
-                style={StyleSheet.absoluteFill}
-                onPress={() => setSelectedSchedule(null)}
-              />
-
-              <ThemedView
-                style={[
-                  styles.modalSheet,
-                  {
-                    backgroundColor: theme.moss,
-                    paddingBottom: insets.bottom + Spacing.four,
-                  },
-                ]}
-              >
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Tutup detail sesi"
-                  hitSlop={8}
-                  onPress={() => setSelectedSchedule(null)}
-                  style={styles.modalHandlePressable}>
-                  <View
-                  style={[
-                    styles.modalHandle,
-                    { backgroundColor: theme.primaryText },
-                  ]}
-                  />
-                </Pressable>
-
-                {selectedSchedule && (
-                  <ScrollView
-                    contentContainerStyle={styles.modalScrollContent}
-                    showsVerticalScrollIndicator={false}
-                  >
-                    <View style={styles.modalHeader}>
-                      <View style={{ flex: 1, gap: Spacing.half }}>
-                        <ThemedText
-                          type="subtitle"
-                          style={{ color: '#FFFFFF', fontSize: 24 }}
-                        >
-                          {selectedSchedule.praktikum}
-                        </ThemedText>
-                        <ThemedText style={{ color: '#FFFFFF', opacity: 0.9, fontSize: 13 }}>
-                          {selectedSchedule.kelas} · {selectedSchedule.ruang}
-                        </ThemedText>
-                      </View>
-                      <SessionStatusBadge
-                        status={activeModalSession?.status ?? "scheduled"}
-                      />
+                    <View style={styles.historySummary}>
+                      <ThemedText type="small" style={{ color: theme.success }}>{presentCount} hadir</ThemedText>
+                      <ThemedText type="small" style={{ color: theme.warning }}>{excusedCount} izin</ThemedText>
+                      {sickCount > 0 ? <ThemedText type="small" style={{ color: theme.warning }}>{sickCount} sakit</ThemedText> : null}
+                      <ThemedText type="small" style={{ color: theme.danger }}>{absentCount} alpha</ThemedText>
                     </View>
-
-                    {/* Section Spesifikasi */}
-                    <View
-                      style={[
-                        styles.detailSection,
-                        {
-                          backgroundColor: theme.glassCard,
-                          borderColor: theme.glassBorder,
-                        },
-                      ]}
-                    >
-                      <View style={styles.detailItemRow}>
-                        <ThemedText type="small" style={{ color: theme.primary, opacity: 0.8, flex: 1 }}>
-                          Kelas
-                        </ThemedText>
-                        <ThemedText type="smallBold" style={{ color: theme.primary, flex: 1, textAlign: "right" }}>
-                          {selectedSchedule.kelas}
-                        </ThemedText>
-                      </View>
-
-                      <View style={styles.detailItemRow}>
-                        <ThemedText type="small" style={{ color: theme.primary, opacity: 0.8, flex: 1 }}>
-                          Ruang Laboratorium
-                        </ThemedText>
-                        <ThemedText type="smallBold" style={{ color: theme.primary, flex: 1, textAlign: "right" }}>
-                          {selectedSchedule.ruang}
-                        </ThemedText>
-                      </View>
-
-                      <View style={styles.detailItemRow}>
-                        <ThemedText type="small" style={{ color: theme.primary, opacity: 0.8, flex: 1 }}>
-                          Tanggal Pelaksanaan
-                        </ThemedText>
-                        <ThemedText type="smallBold" style={{ color: theme.primary, flex: 1, textAlign: "right" }}>
-                          {formatDate(selectedSchedule.date)}
-                        </ThemedText>
-                      </View>
-
-                      <View style={styles.detailItemRow}>
-                        <ThemedText type="small" style={{ color: theme.primary, opacity: 0.8, flex: 1 }}>
-                          Jam Praktikum
-                        </ThemedText>
-                        <ThemedText type="smallBold" style={{ color: theme.primary, flex: 1, textAlign: "right" }}>
-                          {selectedSchedule.startTime} -{" "}
-                          {selectedSchedule.endTime} WIB
-                        </ThemedText>
-                      </View>
-
-                      <View style={styles.detailItemRow}>
-                        <ThemedText type="small" style={{ color: theme.primary, opacity: 0.8, flex: 1 }}>
-                          Asisten Laboratorium
-                        </ThemedText>
-                        <ThemedText type="smallBold" style={{ color: theme.primary, flex: 1, textAlign: "right" }}>
-                          {getUser(selectedSchedule.assistantId)?.name ?? "-"}
-                        </ThemedText>
-                      </View>
-                    </View>
-
-                    {/* Status Sesi & Keterangan */}
-                    <View
-                      style={[
-                        styles.detailStatusNotice,
-                        {
-                          backgroundColor:
-                            activeModalSession?.status === "open"
-                              ? '#E5EAD8'
-                              : theme.glassInput,
-                          borderColor:
-                            activeModalSession?.status === "open"
-                              ? theme.moss
-                              : theme.glassBorder,
-                        },
-                      ]}
-                    >
-                      <ThemedText
-                        type="smallBold"
-                        style={{
-                          color: theme.primary,
-                          fontWeight: '700',
-                        }}
-                      >
-                        {isExcusedForActiveModal
-                          ? 'Izin Disetujui'
-                          : activeModalSession?.status === "open"
-                          ? "Sesi Sedang Dibuka"
-                          : activeModalSession?.status === "closed"
-                            ? "Sesi Telah Ditutup"
-                          : "Sesi Belum Dibuka"}
-                      </ThemedText>
-                      <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                        {isExcusedForActiveModal
-                          ? 'Pengajuan izinmu sudah disetujui asisten. Presensi manual tidak diperlukan.'
-                          : activeModalSession?.status === "open"
-                          ? "Silakan tekan tombol presensi di bawah untuk mencatat kehadiran Anda sekarang."
-                          : activeModalSession?.status === "closed"
-                            ? "Sesi praktikum telah selesai. Presensi sudah tidak dapat dilakukan."
-                            : "Presensi hanya dapat dilakukan jika asisten laboratorium telah membuka sesi ini."}
-                      </ThemedText>
-                    </View>
-
-                    {/* Tombol Presensi di Dalam Modal */}
-                    {isExcusedForActiveModal ? (
-                      <View
-                        style={[
-                          styles.modalCheckedInBanner,
-                          styles.excusedStatusBanner,
-                          { backgroundColor: theme.warningSoft },
-                        ]}>
-                        <ThemedText
-                          type="smallBold"
-                          style={{ color: theme.text }}>
-                          Izin Anda disetujui. Presensi manual tidak diperlukan.
-                        </ThemedText>
-                      </View>
-                    ) : activeModalSession?.status === "open" &&
-                      (isCheckedInForActiveModal ? (
-                        <View
-                          style={[
-                            styles.modalCheckedInBanner,
-                            { backgroundColor: theme.successSoft },
-                          ]}
-                        >
-                          <ThemedText
-                            type="smallBold"
-                            style={{ color: theme.success }}
-                          >
-                            Anda Sudah Presensi Pada Sesi Ini
+                    {expanded ? (
+                      <View style={styles.meetingList}>
+                        {meetings.length === 0 ? (
+                          <ThemedText type="small" themeColor="textSecondary">
+                            Pertemuan akan muncul setelah tanggal pelaksanaannya tiba.
                           </ThemedText>
-                        </View>
-                      ) : (
-                        <Pressable
-                          accessibilityRole="button"
-                          onPress={() => {
-                            if (activeModalSession && selectedSchedule) {
-                              handleCheckIn(
-                                activeModalSession,
-                                selectedSchedule,
-                              );
-                            }
-                          }}
-                          style={({ pressed }) => [
-                            styles.modalCheckInButton,
-                            { backgroundColor: theme.success },
-                            pressed && styles.pressed,
-                          ]}
-                        >
-                          <ThemedText
-                            type="smallBold"
-                            style={{ color: "#FFFFFF", fontSize: 16 }}
-                          >
-                            Presensi Kehadiran Sekarang
-                          </ThemedText>
-                        </Pressable>
-                      ))}
+                        ) : meetings.map(({ schedule, session, record }, index) => {
+                          const matchingSeries = meetings.filter((meeting) => schedule.seriesId
+                            ? meeting.schedule.seriesId === schedule.seriesId
+                            : meeting.schedule.kelas === schedule.kelas &&
+                              meeting.schedule.ruang === schedule.ruang &&
+                              meeting.schedule.startTime === schedule.startTime &&
+                              meeting.schedule.endTime === schedule.endTime &&
+                              getDayName(meeting.schedule.date) === getDayName(schedule.date));
+                          const inferredMeetingNumber = matchingSeries.findIndex((meeting) => meeting.schedule.id === schedule.id) + 1;
+                          const meetingNumber = inferredMeetingNumber || schedule.seriesIndex || index + 1;
+                          const status = getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey);
+                          const statusColor = status === 'Hadir'
+                            ? theme.success
+                            : status === 'Izin' || status === 'Sakit'
+                              ? theme.warning
+                              : status === 'Alpha'
+                                ? theme.danger
+                                : theme.textSecondary;
+                          const permissionReason = record?.permissionRequestId
+                            ? permissionRequests.find((request) => request.id === record.permissionRequestId)?.reason
+                            : null;
 
-                  </ScrollView>
-                )}
-              </ThemedView>
+                          return (
+                            <View key={session.id} style={[styles.meetingRow, { borderTopColor: theme.glassBorder }]}>
+                              <View style={styles.meetingInfo}>
+                                <ThemedText type="smallBold">Pertemuan {meetingNumber}</ThemedText>
+                                <ThemedText type="small" themeColor="textSecondary">
+                                  {formatDate(schedule.date)} · {schedule.startTime}–{schedule.endTime}
+                                </ThemedText>
+                              {status === 'Izin' || status === 'Sakit' ? (
+                                <ThemedText type="small" themeColor="textSecondary">
+                                  {permissionReason ? `Alasan: ${permissionReason}` : 'Izin disetujui'}
+                                </ThemedText>
+                              ) : null}
+                                {record?.checkedInAt && record.status === 'present' ? (
+                                  <ThemedText type="small" themeColor="textSecondary">Presensi {formatDateTime(record.checkedInAt)}</ThemedText>
+                                ) : null}
+                              </View>
+                              {status ? <ThemedText type="smallBold" style={{ color: statusColor }}>{status}</ThemedText> : null}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                  </BlurView>
+                );
+              })}
             </View>
-          </Modal>
+          ) : weeklySchedules.length === 0 ? (
+            <ThemedView type="backgroundElement" style={styles.empty}>
+              <ThemedText type="smallBold">Belum ada jadwal praktikum</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Jadwal hari, waktu, dan laboratorium akan tampil di sini.</ThemedText>
+            </ThemedView>
+          ) : periods.length === 0 ? (
+            <ThemedView type="backgroundElement" style={styles.empty}>
+              <ThemedText type="smallBold">Tidak ada jadwal di waktu ini</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Pilih hari atau rentang waktu yang lain.</ThemedText>
+            </ThemedView>
+          ) : periods.map(({ period, schedules: periodSchedules }) => (
+            <View key={period} style={styles.agendaGroup}>
+              <View style={styles.groupHeading}>
+                <View style={[styles.periodDot, { backgroundColor: theme.primary }]} />
+                <ThemedText type="smallBold">{period}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">· {formatDate(selectedDateKey)}</ThemedText>
+              </View>
+              {periodSchedules.map((schedule) => (
+                <View key={schedule.key} style={styles.agendaRow}>
+                  <View style={styles.timeRail}>
+                    <ThemedText type="smallBold" style={{ color: theme.primary }}>{schedule.startTime}</ThemedText>
+                    <View style={[styles.timeline, { backgroundColor: theme.border }]} />
+                    <ThemedText type="small" themeColor="textSecondary">{schedule.endTime}</ThemedText>
+                  </View>
+                  <BlurView
+                    intensity={34}
+                    tint="light"
+                    style={[
+                      styles.eventCard,
+                      {
+                        backgroundColor: 'rgba(255, 255, 255, 0.24)',
+                        borderColor: 'rgba(255, 255, 255, 0.82)',
+                      },
+                    ]}>
+                    <ThemedText type="smallBold" style={styles.course}>{schedule.praktikum}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">{schedule.kelas}</ThemedText>
+                    <View style={styles.eventFooter}>
+                      <ThemedText type="smallBold" style={{ color: theme.primary }}>⌖  {schedule.ruang}</ThemedText>
+                    </View>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={() => {
+                        const entry = schedule.entries.find((item) => getDayName(item.date) === selectedDay) ?? schedule.entries[0];
+                        if (entry) setSelectedSchedule(entry);
+                      }}
+                      style={({ pressed }) => [styles.detailButton, { borderColor: theme.glassBorderHighlight, backgroundColor: 'rgba(255,255,255,0.5)' }, pressed && styles.pressed]}>
+                      <ThemedText type="smallBold" style={{ color: theme.primary }}>Detail Sesi</ThemedText>
+                    </Pressable>
+                  </BlurView>
+                </View>
+              ))}
+            </View>
+          ))}
         </ScrollView>
+        <Modal visible={selectedSchedule !== null} transparent animationType="slide" onRequestClose={() => setSelectedSchedule(null)}>
+          <View style={styles.modalBackdrop}>
+            <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Tutup detail sesi" onPress={() => setSelectedSchedule(null)} />
+            {selectedSchedule ? (() => {
+              const session = sessions.find((item) => item.scheduleId === selectedSchedule.id);
+              const assistant = getUser(selectedSchedule.assistantId);
+              const sessionStatus = session?.status ?? 'scheduled';
+              return (
+                <ThemedView type="backgroundElement" style={[styles.detailSheet, { borderColor: theme.glassBorderHighlight, paddingBottom: insets.bottom + Spacing.three }]}>
+                  <View style={styles.sheetHandle} />
+                  <View style={styles.detailHeader}>
+                    <View style={styles.historyTitleBlock}>
+                      <ThemedText type="title">Detail Sesi</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">Informasi jadwal praktikum</ThemedText>
+                    </View>
+                    <SessionStatusBadge status={sessionStatus} />
+                  </View>
+                  <ThemedText type="subtitle">{selectedSchedule.praktikum}</ThemedText>
+                  <View style={styles.detailInfo}>
+                    {selectedSchedule.seriesIndex ? <DetailRow label="Pertemuan" value={`Pertemuan ${selectedSchedule.seriesIndex}${selectedSchedule.seriesCount ? ` dari ${selectedSchedule.seriesCount}` : ''}`} /> : null}
+                    <DetailRow label="Kelas" value={selectedSchedule.kelas} />
+                    <DetailRow label="Laboratorium" value={selectedSchedule.ruang} />
+                    <DetailRow label="Tanggal" value={formatDate(selectedSchedule.date)} />
+                    <DetailRow label="Waktu Praktikum" value={`${selectedSchedule.startTime} – ${selectedSchedule.endTime} WIB`} />
+                    <DetailRow label="Asisten Laboratorium" value={assistant?.name ?? '-'} />
+                  </View>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {sessionStatus === 'open'
+                      ? 'Sesi sedang dibuka. Presensi tersedia melalui pemindaian QR.'
+                      : sessionStatus === 'closed'
+                        ? 'Sesi telah ditutup.'
+                        : 'Sesi belum dibuka oleh asisten.'}
+                  </ThemedText>
+                  <Pressable onPress={() => setSelectedSchedule(null)} style={[styles.closeButton, { backgroundColor: theme.primary }]}>
+                    <ThemedText type="smallBold" style={{ color: theme.primaryText }}>Tutup</ThemedText>
+                  </Pressable>
+                </ThemedView>
+              );
+            })() : null}
+          </View>
+        </Modal>
       </SafeAreaView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  content: {
-    width: "100%",
-    maxWidth: 480,
-    alignSelf: "center",
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    gap: Spacing.four,
-  },
-  feedbackToast: {
-    padding: Spacing.three,
-    borderRadius: Spacing.two,
-    borderWidth: 1,
-  },
-  feedbackToastText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  topBigCapsule: {
-    backgroundColor: '#354024',
-    borderRadius: 36,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    paddingBottom: Spacing.five,
-    gap: Spacing.three,
-    shadowColor: '#1A2111',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 8,
-  },
-  innerTitleBox: {
-    backgroundColor: '#27301B',
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.22)',
-    paddingVertical: Spacing.four,
-    paddingHorizontal: Spacing.four,
-    gap: 4,
-  },
-  innerBoxTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    fontFamily: Fonts.bold,
-  },
-  innerBoxSubtitle: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontFamily: Fonts.regular,
-  },
-  actionPillButton: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#27301B',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.four,
-    borderRadius: 999,
-  },
-  actionPillText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-    fontFamily: Fonts.bold,
-  },
-  pillStatsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.two,
-    marginTop: 4,
-  },
-  ovalStatPill: {
-    flex: 1,
-    backgroundColor: '#445130',
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.one,
-    gap: 2,
-  },
-  ovalStatPillActive: {
-    backgroundColor: '#27301B',
-    borderColor: 'rgba(255, 255, 255, 0.45)',
-  },
-  ovalStatNumber: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    fontFamily: Fonts.bold,
-  },
-  ovalStatLabel: {
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontFamily: Fonts.medium,
-    textAlign: 'center',
-  },
-  asymmetricTabsWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    paddingVertical: 4,
-  },
-  asymTabPill: {
-    paddingVertical: 12,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  asymTabActive: {
-    backgroundColor: '#354024',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderBottomRightRadius: 24,
-    borderBottomLeftRadius: 6,
-    shadowColor: '#354024',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  asymTabInactive: {
-    backgroundColor: 'transparent',
-  },
-  asymTabText: {
-    fontSize: 14,
-    fontFamily: Fonts.bold,
-  },
-  asymTabTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  asymTabTextInactive: {
-    color: '#4C3D19',
-    fontWeight: '500',
-  },
-  list: {
-    gap: Spacing.three,
-  },
-  card: {
-    padding: Spacing.four,
-    backgroundColor: '#354024',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderBottomRightRadius: 28,
-    borderBottomLeftRadius: 6,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    gap: Spacing.three,
-    shadowColor: '#27301B',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 14,
-    elevation: 4,
-  },
-  cardHighlight: {
-    borderWidth: 2,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: Spacing.two,
-  },
-  cardHeaderTitle: {
-    flex: 1,
-    gap: Spacing.half,
-  },
-  praktikumTitle: {
-    fontSize: 18,
-    lineHeight: 24,
-    color: '#354024',
-    fontWeight: '700',
-    flexShrink: 1,
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: Spacing.one + 2,
-    paddingHorizontal: Spacing.three,
-    backgroundColor: 'rgba(255, 255, 255, 0.46)',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.78)',
-  },
-  infoItem: {
-    flex: 1,
-    gap: 2,
-  },
-  infoDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: "rgba(255, 255, 255, 0.6)",
-    marginHorizontal: Spacing.two,
-  },
-  assistantBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.one,
-  },
-  actionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    flexWrap: "wrap",
-    gap: Spacing.two,
-    paddingTop: Spacing.one,
-  },
-  detailButton: {
-    paddingHorizontal: Spacing.three + 2,
-    paddingVertical: Spacing.two,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.82)',
-    backgroundColor: 'rgba(255, 255, 255, 0.48)',
-  },
-  checkInButton: {
-    paddingHorizontal: Spacing.three + 2,
-    paddingVertical: Spacing.two,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#889063',
-  },
-  checkedInBadge: {
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    borderRadius: 14,
-  },
-  historyCard: {
-    padding: Spacing.four,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    gap: Spacing.two,
-  },
-  historyHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: Spacing.two,
-  },
-  historyTitle: {
-    fontSize: 16,
-  },
-  historyCount: {
-    paddingHorizontal: Spacing.two + 2,
-    paddingVertical: Spacing.one,
-    borderRadius: 999,
-  },
-  historyRecords: {
-    gap: Spacing.one,
-    marginTop: Spacing.one,
-  },
-  historyRecord: {
-    padding: Spacing.three,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: Spacing.one,
-  },
-  emptyHistoryMessage: {
-    paddingTop: Spacing.one,
-  },
-  historyMetaRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: Spacing.two,
-  },
-  empty: {
-    padding: Spacing.five,
-    borderRadius: 24,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.one,
-  },
-  modalBackdrop: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  modalSheet: {
-    width: "100%",
-    maxWidth: 560,
-    maxHeight: "85%",
-    alignSelf: "center",
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    borderWidth: 1.5,
-    borderColor: '#C8B995',
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-    gap: Spacing.three,
-  },
-  modalHandle: {
-    width: 44,
-    height: 5,
-    borderRadius: 3,
-  },
-  modalHandlePressable: {
-    width: 64,
-    height: 44,
-    alignSelf: "center",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modalScrollContent: {
-    gap: Spacing.three,
-    paddingBottom: Spacing.four,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: Spacing.two,
-  },
-  detailSection: {
-    padding: Spacing.four,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    gap: Spacing.two,
-  },
-  detailItemRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: Spacing.two,
-    paddingVertical: Spacing.half,
-  },
-  detailStatusNotice: {
-    padding: Spacing.four,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    gap: Spacing.one,
-  },
-  modalCheckInButton: {
-    paddingVertical: Spacing.three,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: '#C8B995',
-  },
-  modalCheckedInBanner: {
-    paddingVertical: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  excusedStatusBanner: {
-    marginTop: Spacing.three,
-  },
-  pressed: {
-    opacity: 0.75,
-  },
+  screen: { flex: 1 },
+  content: { width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: Spacing.three, paddingTop: Spacing.four, paddingBottom: Spacing.three, gap: Spacing.three },
+  daySelector: { gap: Spacing.two, paddingVertical: Spacing.one },
+  dayChip: { width: 58, alignItems: 'center', gap: Spacing.half, paddingHorizontal: Spacing.one, paddingVertical: Spacing.two, borderWidth: 1, borderRadius: 19, overflow: 'hidden' },
+  dayChipSelected: { shadowColor: '#354024', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+  agendaGroup: { gap: Spacing.two },
+  historyList: { gap: Spacing.three },
+  historyCard: { padding: Spacing.three, borderWidth: 1, borderRadius: 23, gap: Spacing.one, overflow: 'hidden', shadowColor: '#FFFFFF', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 14, elevation: 3 },
+  historyToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two, minHeight: 40 },
+  historyTitleBlock: { flex: 1, gap: Spacing.half },
+  historySummary: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },
+  meetingList: { gap: Spacing.two },
+  meetingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two, borderTopWidth: 1, paddingTop: Spacing.two },
+  meetingInfo: { flex: 1, gap: Spacing.half },
+  groupHeading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, paddingVertical: Spacing.one },
+  periodDot: { width: 9, height: 9, borderRadius: 5 },
+  agendaRow: { flexDirection: 'row', alignItems: 'stretch', gap: Spacing.two },
+  timeRail: { width: 52, alignItems: 'center', paddingTop: Spacing.two, gap: Spacing.one },
+  timeline: { flex: 1, width: 1, minHeight: 22, opacity: 0.55 },
+  eventCard: { flex: 1, padding: Spacing.three, borderWidth: 1, borderRadius: 23, gap: Spacing.one, overflow: 'hidden', shadowColor: '#354024', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 14, elevation: 3 },
+  course: { flexShrink: 1 },
+  eventFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.one },
+  detailButton: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one, marginTop: Spacing.one },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(24, 26, 20, 0.42)' },
+  detailSheet: { paddingHorizontal: Spacing.three, paddingTop: Spacing.two, borderTopLeftRadius: 30, borderTopRightRadius: 30, borderWidth: 1, gap: Spacing.two },
+  sheetHandle: { width: 42, height: 4, borderRadius: 2, alignSelf: 'center', backgroundColor: 'rgba(80,80,70,0.3)', marginBottom: Spacing.one },
+  detailHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  detailInfo: { gap: Spacing.one, paddingVertical: Spacing.one },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.two, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: Spacing.one },
+  detailLabel: { flex: 1 },
+  detailValue: { flex: 1, textAlign: 'right' },
+  closeButton: { alignItems: 'center', justifyContent: 'center', minHeight: 48, borderRadius: 16, marginTop: Spacing.one },
+  empty: { padding: Spacing.four, borderRadius: 24, gap: Spacing.two },
+  pressed: { opacity: 0.8 },
 });
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.detailRow, { borderBottomColor: theme.glassBorder }]}>
+      <ThemedText type="small" themeColor="textSecondary" style={styles.detailLabel}>{label}</ThemedText>
+      <ThemedText type="smallBold" style={styles.detailValue}>{value}</ThemedText>
+    </View>
+  );
+}

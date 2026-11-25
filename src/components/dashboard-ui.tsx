@@ -110,13 +110,13 @@ export function DashboardCapsule({
                 {
                   backgroundColor: stat.active
                     ? theme.moss
-                    : theme.glassGreenLight,
-                  backgroundImage: stat.active
-                    ? `linear-gradient(145deg, rgba(255, 255, 255, 0.5) 0%, ${theme.moss} 38%, ${theme.primary} 100%)`
-                    : `linear-gradient(145deg, rgba(255, 255, 255, 0.62) 0%, ${theme.glassGreenSheen} 42%, ${theme.glassGreenLight} 100%)`,
+                    : 'rgba(255, 255, 255, 0.14)',
                   borderColor: stat.active
-                    ? theme.glassBorderHighlight
-                    : theme.glassGreenBorder,
+                    ? 'rgba(255, 255, 255, 0.76)'
+                    : 'rgba(255, 255, 255, 0.48)',
+                  ...(Platform.OS === 'web'
+                    ? ({ backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)' } as object)
+                    : {}),
                 },
                 pressed && dashboardStyles.pressed,
               ]}>
@@ -151,9 +151,8 @@ export function DashboardTabs({
       style={[
         dashboardStyles.tabs,
         {
-          backgroundColor: 'rgba(237, 228, 213, 0.76)',
-          backgroundImage: `linear-gradient(145deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.32) 42%, rgba(237, 228, 213, 0.68) 100%)`,
-          borderColor: theme.glassBorder,
+          backgroundColor: 'rgba(255, 255, 255, 0.12)',
+          borderColor: 'rgba(255, 255, 255, 0.64)',
           ...(Platform.OS === 'web'
             ? ({ backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' } as object)
             : {}),
@@ -168,11 +167,8 @@ export function DashboardTabs({
           style={({ pressed }) => [
             dashboardStyles.tab,
             tab.active
-              ? {
-                  backgroundColor: theme.primary,
-                  backgroundImage: `linear-gradient(145deg, ${theme.moss} 0%, ${theme.primary} 74%, #27301B 100%)`,
-                }
-              : { backgroundColor: 'transparent' },
+              ? { backgroundColor: theme.primary }
+              : { backgroundColor: 'rgba(255, 255, 255, 0.12)' },
             pressed && dashboardStyles.pressed,
           ]}>
           <ThemedText

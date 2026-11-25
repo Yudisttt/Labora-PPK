@@ -310,6 +310,16 @@ export default function ManagePracticumDataScreen() {
     () => new Set(selectedClassParticipants.map((participant) => participant.userId)),
     [selectedClassParticipants],
   );
+  const enrolledInSameCourseUserIds = useMemo(() => {
+    if (!activeClass) return new Set<string>();
+    const courseKey = activeClass.course.trim().toLocaleLowerCase();
+    const sameCourseClassIds = new Set(classes
+      .filter((item) => item.course.trim().toLocaleLowerCase() === courseKey)
+      .map((item) => item.id));
+    return new Set(participants
+      .filter((participant) => sameCourseClassIds.has(participant.classId))
+      .map((participant) => participant.userId));
+  }, [activeClass, classes, participants]);
 
   async function performAction(
     action: () => Promise<unknown>,
@@ -1037,7 +1047,7 @@ export default function ManagePracticumDataScreen() {
                   busy ||
                   !activeClassId ||
                   !activeUserId ||
-                  enrolledUserIds.has(activeUserId)
+                  enrolledInSameCourseUserIds.has(activeUserId)
                 }
                 primary
               />
@@ -1544,7 +1554,6 @@ export default function ManagePracticumDataScreen() {
                               : 'Mendatang'}
                       </ThemedText>
                     </View>
-                    {!cancelled && !rescheduled && isPast ? null : null}
                     {!cancelled && !rescheduled && !isPast ? (
                       <View style={styles.buttonRow}>
                         <ActionButton
@@ -1556,6 +1565,18 @@ export default function ManagePracticumDataScreen() {
                           label="Pindah"
                           onPress={() => beginReschedule(meeting)}
                           disabled={busy || Boolean(editingScheduleId)}
+                        />
+                        <ActionButton
+                          label="Hapus"
+                          onPress={() =>
+                            setDeleteTarget({
+                              type: 'schedule',
+                              id: meeting.id,
+                              label: `${expandedSeries.template.praktikum} · Pertemuan ${meeting.seriesIndex}`,
+                            })
+                          }
+                          disabled={busy}
+                          danger
                         />
                       </View>
                     ) : null}
@@ -2121,11 +2142,17 @@ export default function ManagePracticumDataScreen() {
               },
             ]}>
             <ThemedText type="smallBold">
-              {deleteTarget?.type === 'series' ? 'Akhiri jadwal rutin?' : 'Hapus data?'}
+              {deleteTarget?.type === 'series'
+                ? 'Akhiri jadwal rutin?'
+                : deleteTarget?.type === 'class'
+                  ? 'Hapus Lab beserta seluruh datanya?'
+                  : 'Hapus data?'}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               {deleteTarget?.type === 'series'
                 ? `Akhiri ${deleteTarget.label}? Pertemuan mendatang akan dibatalkan, sementara pertemuan dan riwayat yang sudah lewat tetap tersimpan.`
+                : deleteTarget?.type === 'class'
+                  ? `Hapus ${deleteTarget.label}? Semua peserta, jadwal, sesi, kode QR, presensi, dan pengajuan izin di Lab ini juga akan dihapus. Tindakan ini tidak dapat dibatalkan.`
                 : `Yakin ingin menghapus ${deleteTarget?.label}? Tindakan ini tidak dapat dibatalkan.`}
             </ThemedText>
             <View style={styles.buttonRow}>
@@ -2230,14 +2257,15 @@ export default function ManagePracticumDataScreen() {
               showsVerticalScrollIndicator>
               {users.map((user) => {
                 const enrolled = enrolledUserIds.has(user.id);
+                const enrolledInCourse = enrolledInSameCourseUserIds.has(user.id);
                 const selected = activeUserId === user.id;
 
                 return (
                   <Pressable
                     key={`user-option-${user.id}`}
                     accessibilityRole="button"
-                    accessibilityState={{ selected, disabled: enrolled }}
-                    disabled={enrolled}
+                    accessibilityState={{ selected, disabled: enrolledInCourse }}
+                    disabled={enrolledInCourse}
                     onPress={() => {
                       setSelectedUserId(user.id);
                       setParticipantUserDropdownOpen(false);
@@ -2245,13 +2273,13 @@ export default function ManagePracticumDataScreen() {
                     style={[
                       styles.timeDropdownOption,
                       selected && { backgroundColor: theme.glassInput },
-                      enrolled && styles.dimmed,
+                      enrolledInCourse && styles.dimmed,
                     ]}>
                     <View style={styles.flex}>
                       <ThemedText type="smallBold">{user.name}</ThemedText>
                       <ThemedText type="small" themeColor="textSecondary">
                         {user.identityNumber}
-                        {enrolled ? ' · sudah terdaftar' : ''}
+                        {enrolled ? ' · sudah terdaftar' : enrolledInCourse ? ' · sudah terdaftar di praktikum ini' : ''}
                       </ThemedText>
                     </View>
                   </Pressable>

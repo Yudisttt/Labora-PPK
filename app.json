@@ -26,6 +26,20 @@
     },
     "plugins": [
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Labora menggunakan kamera untuk memindai QR presensi.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Labora menggunakan lokasi untuk memeriksa apakah Anda berada dalam radius laboratorium saat presensi."
+        }
+      ],
+      [
         "expo-router",
         {
           "asyncRoutes": false

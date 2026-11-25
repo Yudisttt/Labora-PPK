@@ -1,4 +1,5 @@
 import {
+  Timestamp,
   addDoc,
   collection,
   deleteDoc,
@@ -13,6 +14,7 @@ import {
   updateDoc,
   where,
   writeBatch,
+  type DocumentReference,
   type Unsubscribe,
 } from 'firebase/firestore';
 
@@ -38,6 +40,22 @@ export type PracticumSchedule = Omit<Schedule, 'status' | 'originalScheduleId' |
   originalScheduleId?: string;
   replacementScheduleId?: string;
 };
+
+function chunkItems<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function deleteDocumentRefs(db: ReturnType<typeof getFirebaseDb>, refs: DocumentReference[]) {
+  for (const group of chunkItems(refs, 8)) {
+    const batch = writeBatch(db);
+    group.forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+}
 
 type ClassInput = Omit<PracticumClass, 'id'>;
 type ScheduleInput = Omit<
@@ -267,20 +285,49 @@ export function listenSchedulesForUser(
       scheduleUnsubscribes.forEach((unsubscribe) => unsubscribe());
       scheduleUnsubscribes = [];
 
-      const classIds = [...new Set(
-        snapshot.docs
-          .map((item) => item.data().classId)
-          .filter((classId): classId is string => typeof classId === 'string'),
-      )];
+      const participantRows = snapshot.docs
+        .map((item) => {
+          const data = item.data();
+          return {
+            id: item.id,
+            classId: data.classId,
+            createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toMillis() : Number.MAX_SAFE_INTEGER,
+          };
+        })
+        .filter((item): item is { id: string; classId: string; createdAt: number } => typeof item.classId === 'string')
+        .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+      const classIds = [...new Set(participantRows.map((item) => item.classId))];
 
       if (classIds.length === 0) {
         onData([]);
         return;
       }
 
+      void Promise.all(classIds.map(async (classId) => ({
+        classId,
+        snapshot: await getDoc(doc(db, 'classes', classId)),
+      }))).then((classSnapshots) => {
+        if (currentGeneration !== generation) return;
+
+        const courseByClassId = new Map(classSnapshots.map(({ classId, snapshot }) => [
+          classId,
+          snapshot.exists() && typeof snapshot.data().course === 'string'
+            ? snapshot.data().course.trim().toLocaleLowerCase()
+            : classId,
+        ]));
+        const selectedCourseIds = new Set<string>();
+        const uniqueCourseClassIds = participantRows
+          .filter(({ classId }) => {
+            const courseId = courseByClassId.get(classId) ?? classId;
+            if (selectedCourseIds.has(courseId)) return false;
+            selectedCourseIds.add(courseId);
+            return true;
+          })
+          .map(({ classId }) => classId);
+
       const groups: string[][] = [];
-      for (let index = 0; index < classIds.length; index += 30) {
-        groups.push(classIds.slice(index, index + 30));
+      for (let index = 0; index < uniqueCourseClassIds.length; index += 30) {
+        groups.push(uniqueCourseClassIds.slice(index, index + 30));
       }
 
       const schedulesByGroup = new Map<number, PracticumSchedule[]>();
@@ -318,6 +365,11 @@ export function listenSchedulesForUser(
           onError,
         ),
       );
+      }).catch((error: unknown) => {
+        if (currentGeneration === generation) {
+          onError(error instanceof Error ? error : new Error('Tidak dapat memeriksa pendaftaran praktikan.'));
+        }
+      });
     },
     onError,
   );
@@ -377,13 +429,31 @@ export async function deleteClass(id: string) {
     getDocs(query(collection(db, 'participants'), where('classId', '==', id))),
     getDocs(query(collection(db, 'schedules'), where('classId', '==', id))),
   ]);
+  const scheduleIds = schedules.docs.map((item) => item.id);
+  const sessionSnapshots = await Promise.all(chunkItems(scheduleIds, 30).map((group) =>
+    getDocs(query(collection(db, 'sessions'), where('scheduleId', 'in', group))),
+  ));
+  const sessionDocs = sessionSnapshots.flatMap((snapshot) => snapshot.docs);
+  const sessionIdGroups = chunkItems(sessionDocs.map((item) => item.id), 30);
+  const [attendanceSnapshots, permissionSnapshots, codeSnapshots] = await Promise.all([
+    Promise.all(sessionIdGroups.map((group) =>
+      getDocs(query(collection(db, 'attendance'), where('sessionId', 'in', group))),
+    )),
+    Promise.all(sessionIdGroups.map((group) =>
+      getDocs(query(collection(db, 'permissionRequests'), where('sessionId', 'in', group))),
+    )),
+    Promise.all(sessionDocs.map((session) =>
+      getDocs(collection(db, 'sessions', session.id, 'attendanceCodes')),
+    )),
+  ]);
 
-  if (!participants.empty || !schedules.empty) {
-    throw new Error(
-      'Praktikum di Lab ini masih memiliki peserta atau jadwal. Hapus data terkait terlebih dahulu.',
-    );
-  }
-
+  // Delete dependants first so each Firestore delete rule can still verify ownership.
+  await deleteDocumentRefs(db, codeSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.ref)));
+  await deleteDocumentRefs(db, attendanceSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.ref)));
+  await deleteDocumentRefs(db, permissionSnapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.ref)));
+  await deleteDocumentRefs(db, sessionDocs.map((item) => item.ref));
+  await deleteDocumentRefs(db, schedules.docs.map((item) => item.ref));
+  await deleteDocumentRefs(db, participants.docs.map((item) => item.ref));
   await deleteDoc(doc(db, 'classes', id));
 }
 
@@ -553,6 +623,32 @@ export async function addParticipant(classId: string, userId: string) {
   const db = getFirebaseDb();
   const participantId = `${classId}_${userId}`;
   const participantRef = doc(db, 'participants', participantId);
+  const [targetClass, enrollments] = await Promise.all([
+    getDoc(doc(db, 'classes', classId)),
+    getDocs(query(collection(db, 'participants'), where('userId', '==', userId))),
+  ]);
+
+  if (!targetClass.exists() || typeof targetClass.data().course !== 'string') {
+    throw new Error('Praktikum yang dipilih tidak ditemukan.');
+  }
+
+  const targetCourse = targetClass.data().course.trim().toLocaleLowerCase();
+  const otherClassIds = [...new Set(enrollments.docs
+    .map((item) => item.data().classId)
+    .filter((enrolledClassId): enrolledClassId is string =>
+      typeof enrolledClassId === 'string' && enrolledClassId !== classId,
+    ))];
+  const otherClasses = await Promise.all(otherClassIds.map((otherClassId) =>
+    getDoc(doc(db, 'classes', otherClassId)),
+  ));
+  const alreadyEnrolledInSameCourse = otherClasses.some((item) =>
+    item.exists() && typeof item.data().course === 'string' &&
+    item.data().course.trim().toLocaleLowerCase() === targetCourse,
+  );
+
+  if (alreadyEnrolledInSameCourse) {
+    throw new Error('Praktikan sudah terdaftar di kelas lain untuk praktikum ini. Hapus pendaftaran sebelumnya terlebih dahulu.');
+  }
 
   await runTransaction(db, async (transaction) => {
     const existing = await transaction.get(participantRef);
