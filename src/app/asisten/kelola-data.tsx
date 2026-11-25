@@ -1397,21 +1397,28 @@ export default function ManagePracticumDataScreen() {
                           setExpandedSeriesId(expanded ? null : rowId)
                         }
                         style={({ pressed }) => [
-                          styles.detailChip,
+                          styles.detailButton,
                           {
+                            borderColor: theme.primary,
                             backgroundColor: expanded
                               ? theme.primary
-                              : theme.glassInput,
-                            borderColor: theme.glassBorder,
+                              : 'transparent',
                           },
                           pressed && styles.pressedRow,
                         ]}>
                         <ThemedText
                           type="smallBold"
                           style={{
-                            color: expanded ? theme.primaryText : theme.text,
+                            color: expanded ? theme.primaryText : theme.primary,
                           }}>
-                          {expanded ? 'Tutup' : 'Detail'}
+                          {expanded ? 'Tutup Detail' : 'Lihat Detail'}
+                        </ThemedText>
+                        <ThemedText
+                          type="smallBold"
+                          style={{
+                            color: expanded ? theme.primaryText : theme.primary,
+                          }}>
+                          {expanded ? '∨' : '›'}
                         </ThemedText>
                       </Pressable>
                     </View>
@@ -2608,11 +2615,15 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 999,
   },
-  detailChip: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 4,
+  detailButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 1.5,
   },
   meetingDetailRow: {
     gap: Spacing.one,

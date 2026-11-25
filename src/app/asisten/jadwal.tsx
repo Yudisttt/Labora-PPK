@@ -76,6 +76,8 @@ export default function AsistenJadwalScreen() {
   const [rekapSelectedScheduleId, setRekapSelectedScheduleId] =
     useState<string>('all');
   const [rekapSearchPraktikan, setRekapSearchPraktikan] = useState('');
+  const [rekapSearchQuery, setRekapSearchQuery] = useState('');
+  const [rekapFilterOpen, setRekapFilterOpen] = useState(false);
   const [expandedRekapScheduleId, setExpandedRekapScheduleId] =
     useState<string | null>(null);
 
@@ -402,9 +404,9 @@ export default function AsistenJadwalScreen() {
     { label: 'Peta', icon: 'map-outline', onPress: () => router.push('/asisten/peta') },
     { label: 'Presensi', icon: 'finger-print-outline', onPress: () => router.push('/asisten/presensi') },
     {
-      label: activeTab === 'rekap' ? 'Kembali ke Sesi' : 'Rekap Presensi',
-      icon: activeTab === 'rekap' ? 'calendar-outline' : 'stats-chart-outline',
-      onPress: () => setActiveTab((tab) => tab === 'jadwal' ? 'rekap' : 'jadwal'),
+      label: 'Rekap Presensi',
+      icon: 'stats-chart-outline',
+      onPress: () => setActiveTab('rekap'),
     },
   ];
 
@@ -422,11 +424,20 @@ export default function AsistenJadwalScreen() {
     name.toLowerCase().includes(rekapSearchKey) ||
     identityNumber.toLowerCase().includes(rekapSearchKey);
 
+  const rekapQueryKey = rekapSearchQuery.trim().toLowerCase();
+  const rekapMatchesQuery = (praktikum: string, ruang: string) =>
+    !rekapQueryKey ||
+    praktikum.toLowerCase().includes(rekapQueryKey) ||
+    ruang.toLowerCase().includes(rekapQueryKey);
+
   const visibleRekapRows = schedules
     .filter((schedule) =>
       rekapSelectedScheduleId === 'all'
         ? true
         : schedule.id === rekapSelectedScheduleId,
+    )
+    .filter((schedule) =>
+      rekapMatchesQuery(schedule.praktikum, schedule.ruang),
     )
     .flatMap((schedule) => {
       const session = getSessionsForSchedule(schedule.id)[0];
@@ -458,6 +469,14 @@ export default function AsistenJadwalScreen() {
       )
     : undefined;
 
+  const averagePresencePercent =
+    visibleRekapRows.length === 0
+      ? 0
+      : Math.round(
+          visibleRekapRows.reduce((total, row) => total + row.percentage, 0) /
+            visibleRekapRows.length,
+        );
+
   return (
     <ThemedView style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -480,42 +499,59 @@ export default function AsistenJadwalScreen() {
             </View>
           ) : null}
 
-          {/* Top Big Capsule Container Asisten (Persis Desain Figma) */}
-          <DashboardCapsule
-            title="Kelola Data"
-            subtitle="Kelola sesi dan presensimu hari ini"
-          />
+          {activeTab === 'jadwal' ? (
+            <>
+              {/* Top Big Capsule Container Asisten */}
+              <DashboardCapsule
+                title="Kelola Data"
+                subtitle="Kelola sesi dan presensimu hari ini"
+              />
 
-          <View style={styles.shortcutGrid}>
-            {dashboardShortcuts.map((shortcut) => (
-              <Pressable
-                key={shortcut.label}
-                accessibilityRole="button"
-                onPress={shortcut.onPress}
-                style={({ pressed }) => [
-                  styles.shortcutTile,
-                  {
-                    backgroundColor: theme.glassGreenLight,
-                    backgroundImage: `linear-gradient(145deg, ${theme.glassBorderHighlight} 0%, ${theme.glassGreenSheen} 32%, ${theme.glassGreenLight} 100%)`,
-                    borderColor: theme.glassBorderHighlight,
-                    shadowColor: theme.primary,
-                  },
-                  pressed && styles.pressed,
-                ]}>
-                <Ionicons
-                  name={shortcut.icon}
-                  size={23}
-                  color={theme.primary}
-                />
-                <ThemedText
-                  type="smallBold"
-                  numberOfLines={2}
-                  style={{ color: theme.text, textAlign: 'center' }}>
-                  {shortcut.label}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
+              <View style={styles.shortcutGrid}>
+                {dashboardShortcuts.map((shortcut) => (
+                  <Pressable
+                    key={shortcut.label}
+                    accessibilityRole="button"
+                    onPress={shortcut.onPress}
+                    style={({ pressed }) => [
+                      styles.shortcutTile,
+                      {
+                        backgroundColor: theme.glassGreenLight,
+                        backgroundImage: `linear-gradient(145deg, ${theme.glassBorderHighlight} 0%, ${theme.glassGreenSheen} 32%, ${theme.glassGreenLight} 100%)`,
+                        borderColor: theme.glassBorderHighlight,
+                        shadowColor: theme.primary,
+                      },
+                      pressed && styles.pressed,
+                    ]}>
+                    <Ionicons
+                      name={shortcut.icon}
+                      size={23}
+                      color={theme.primary}
+                    />
+                    <ThemedText
+                      type="smallBold"
+                      numberOfLines={2}
+                      style={{ color: theme.text, textAlign: 'center' }}>
+                      {shortcut.label}
+                    </ThemedText>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setActiveTab('jadwal')}
+              style={({ pressed }) => [
+                styles.backButton,
+                { borderColor: '#C8B995' },
+                pressed && styles.pressed,
+              ]}>
+              <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                ← Kembali
+              </ThemedText>
+            </Pressable>
+          )}
 
           {/* ============================================================== */}
           {/* TAB 1: JADWAL & KONTROL SESI (SRS-04 & SRS-05)                  */}
@@ -1027,64 +1063,180 @@ export default function AsistenJadwalScreen() {
           {/* ============================================================== */}
           {activeTab === 'rekap' && (
             <View style={styles.tabContent}>
-              {/* Rekap Header */}
-              <View
-                style={[
-                  styles.rekapHeaderCard,
-                  {
-                    backgroundColor: '#F7F1E7',
-                    borderColor: '#C8B995',
-                  },
-                ]}>
-                <ThemedText type="subtitle" style={styles.rekapTitle}>
-                  Rekapitulasi Kehadiran
+              <View style={styles.rekapHeadingBlock}>
+                <ThemedText type="smallBold" style={styles.rekapEyebrow}>
+                  REKAP PRESENSI
+                </ThemedText>
+                <ThemedText type="subtitle" style={styles.rekapHeading}>
+                  Kehadiran Praktikan
                 </ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">
-                  Pantau kehadiran praktikan di setiap jadwal praktikum.
+                  Ringkasan kehadiran seluruh praktikan pada praktikum yang kamu
+                  ampu.
                 </ThemedText>
+              </View>
 
-                <View style={styles.rekapStatRow}>
-                  {[
-                    { label: 'Jadwal', value: schedules.length },
-                    { label: 'Praktikan', value: praktikanUsers.length },
-                    { label: 'Total Presensi', value: attendance.length },
-                  ].map((stat) => (
-                    <View
-                      key={stat.label}
-                      style={[
-                        styles.rekapStatCard,
-                        {
-                          backgroundColor: '#F7F1E7',
-                          borderColor: '#C8B995',
-                        },
-                      ]}>
-                      <ThemedText
-                        type="smallBold"
-                        style={[styles.rekapStatValue, { color: theme.primary }]}>
-                        {stat.value}
-                      </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {stat.label}
-                      </ThemedText>
-                    </View>
-                  ))}
+              {/* Statistik ringkas */}
+              <View
+                style={[
+                  styles.rekapStatPanel,
+                  { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
+                ]}>
+                <View style={styles.rekapStatPanelItem}>
+                  <Ionicons
+                    name="calendar-outline"
+                    size={24}
+                    color={theme.primary}
+                  />
+                  <ThemedText
+                    type="smallBold"
+                    style={[styles.rekapStatNumber, { color: theme.primary }]}>
+                    {visibleRekapRows.length}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Jadwal
+                  </ThemedText>
                 </View>
 
-                <View style={styles.rekapControlGroup}>
-                  <ThemedText type="smallBold" style={styles.rekapControlLabel}>
-                    Pilih Mata Praktikum
+                <View
+                  style={[
+                    styles.rekapStatDivider,
+                    { backgroundColor: '#C8B995' },
+                  ]}
+                />
+
+                <View style={styles.rekapStatPanelItem}>
+                  <Ionicons
+                    name="radio-button-on-outline"
+                    size={24}
+                    color={theme.moss}
+                  />
+                  <ThemedText
+                    type="smallBold"
+                    style={[styles.rekapStatNumber, { color: theme.moss }]}>
+                    {visibleRekapRows.filter((row) => row.session.status === 'open').length}
                   </ThemedText>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.rekapScheduleFilterList}>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Sesi Dibuka
+                  </ThemedText>
+                </View>
+
+                <View
+                  style={[
+                    styles.rekapStatDivider,
+                    { backgroundColor: '#C8B995' },
+                  ]}
+                />
+
+                <View style={styles.rekapStatPanelItem}>
+                  <Ionicons
+                    name="stats-chart-outline"
+                    size={24}
+                    color={theme.primary}
+                  />
+                  <ThemedText
+                    type="smallBold"
+                    style={[styles.rekapStatNumber, { color: theme.primary }]}>
+                    {averagePresencePercent}%
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Rata-rata Hadir
+                  </ThemedText>
+                </View>
+              </View>
+
+              <ThemedText type="smallBold" style={styles.rekapListHeading}>
+                Daftar Rekap
+              </ThemedText>
+
+              {/* Search mata kuliah / lab */}
+              <View style={styles.rekapSearchRow}>
+                <View
+                  style={[
+                    styles.searchBox,
+                    styles.rekapSearchField,
+                    { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
+                  ]}>
+                  <TextInput
+                    value={rekapSearchQuery}
+                    onChangeText={setRekapSearchQuery}
+                    placeholder="Cari mata kuliah atau lab"
+                    placeholderTextColor="#7F735B"
+                    style={[styles.searchInput, { color: theme.text }]}
+                  />
+                  {rekapSearchQuery.length > 0 && (
                     <Pressable
-                      onPress={() => setRekapSelectedScheduleId('all')}
+                      onPress={() => setRekapSearchQuery('')}
+                      style={styles.searchClearButton}>
+                      <ThemedText
+                        type="smallBold"
+                        style={{ color: theme.primary }}>
+                        ✕
+                      </ThemedText>
+                    </Pressable>
+                  )}
+                </View>
+
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: rekapFilterOpen }}
+                  onPress={() => setRekapFilterOpen((open) => !open)}
+                  style={({ pressed }) => [
+                    styles.rekapFilterButton,
+                    { backgroundColor: theme.primary },
+                    pressed && styles.pressed,
+                  ]}>
+                  <Ionicons
+                    name="funnel-outline"
+                    size={16}
+                    color={theme.primaryText}
+                  />
+                  <ThemedText
+                    type="smallBold"
+                    style={{ color: theme.primaryText }}>
+                    Filter
+                  </ThemedText>
+                </Pressable>
+              </View>
+
+              {rekapFilterOpen && (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.rekapScheduleFilterList}>
+                  <Pressable
+                    onPress={() => setRekapSelectedScheduleId('all')}
+                    style={[
+                      styles.chip,
+                      {
+                        backgroundColor:
+                          rekapSelectedScheduleId === 'all'
+                            ? theme.primary
+                            : '#F7F1E7',
+                        borderColor: '#C8B995',
+                      },
+                    ]}>
+                    <ThemedText
+                      type="smallBold"
+                      style={{
+                        color:
+                          rekapSelectedScheduleId === 'all'
+                            ? theme.primaryText
+                            : theme.text,
+                      }}>
+                      Semua Praktikum
+                    </ThemedText>
+                  </Pressable>
+
+                  {schedules.map((schedule) => (
+                    <Pressable
+                      key={schedule.id}
+                      onPress={() => setRekapSelectedScheduleId(schedule.id)}
                       style={[
                         styles.chip,
                         {
                           backgroundColor:
-                            rekapSelectedScheduleId === 'all'
+                            rekapSelectedScheduleId === schedule.id
                               ? theme.primary
                               : '#F7F1E7',
                           borderColor: '#C8B995',
@@ -1094,71 +1246,16 @@ export default function AsistenJadwalScreen() {
                         type="smallBold"
                         style={{
                           color:
-                            rekapSelectedScheduleId === 'all'
+                            rekapSelectedScheduleId === schedule.id
                               ? theme.primaryText
                               : theme.text,
                         }}>
-                        Semua Sesi
+                        {schedule.praktikum} ({schedule.kelas})
                       </ThemedText>
                     </Pressable>
-
-                    {schedules.map((schedule) => (
-                      <Pressable
-                        key={schedule.id}
-                        onPress={() => setRekapSelectedScheduleId(schedule.id)}
-                        style={[
-                          styles.chip,
-                          {
-                            backgroundColor:
-                              rekapSelectedScheduleId === schedule.id
-                                ? theme.primary
-                                : '#F7F1E7',
-                            borderColor: '#C8B995',
-                          },
-                        ]}>
-                        <ThemedText
-                          type="smallBold"
-                          style={{
-                            color:
-                              rekapSelectedScheduleId === schedule.id
-                                ? theme.primaryText
-                                : theme.text,
-                          }}>
-                          {schedule.praktikum} ({schedule.kelas})
-                        </ThemedText>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-
-                  <View
-                    style={[
-                      styles.searchBox,
-                      {
-                        backgroundColor: '#F7F1E7',
-                        borderColor: '#C8B995',
-                      },
-                    ]}>
-                    <TextInput
-                      value={rekapSearchPraktikan}
-                      onChangeText={setRekapSearchPraktikan}
-                      placeholder="Cari nama atau NIM praktikan..."
-                      placeholderTextColor="#7F735B"
-                      style={[styles.searchInput, { color: theme.text }]}
-                    />
-                    {rekapSearchPraktikan.length > 0 && (
-                      <Pressable
-                        onPress={() => setRekapSearchPraktikan('')}
-                        style={styles.searchClearButton}>
-                        <ThemedText
-                          type="smallBold"
-                          style={{ color: theme.primary }}>
-                          ✕
-                        </ThemedText>
-                      </Pressable>
-                    )}
-                  </View>
-                </View>
-              </View>
+                  ))}
+                </ScrollView>
+              )}
 
               {/* Daftar Rekap per Jadwal */}
               {visibleRekapRows.length === 0 ? (
@@ -1247,12 +1344,12 @@ export default function AsistenJadwalScreen() {
                               )
                             }
                             style={({ pressed }) => [
-                              styles.detailChip,
+                              styles.detailButton,
                               {
+                                borderColor: theme.primary,
                                 backgroundColor: expanded
                                   ? theme.primary
-                                  : '#F7F1E7',
-                                borderColor: '#C8B995',
+                                  : 'transparent',
                               },
                               pressed && styles.pressed,
                             ]}>
@@ -1261,9 +1358,18 @@ export default function AsistenJadwalScreen() {
                               style={{
                                 color: expanded
                                   ? theme.primaryText
-                                  : theme.text,
+                                  : theme.primary,
                               }}>
-                              {expanded ? 'Tutup' : 'Detail'}
+                              {expanded ? 'Tutup Detail' : 'Lihat Detail'}
+                            </ThemedText>
+                            <ThemedText
+                              type="smallBold"
+                              style={{
+                                color: expanded
+                                  ? theme.primaryText
+                                  : theme.primary,
+                              }}>
+                              {expanded ? '∨' : '›'}
                             </ThemedText>
                           </Pressable>
                         </View>
@@ -1894,6 +2000,34 @@ export default function AsistenJadwalScreen() {
                           />
                         </View>
 
+                        <View
+                          style={[
+                            styles.searchBox,
+                            {
+                              backgroundColor: '#F7F1E7',
+                              borderColor: '#C8B995',
+                            },
+                          ]}>
+                          <TextInput
+                            value={rekapSearchPraktikan}
+                            onChangeText={setRekapSearchPraktikan}
+                            placeholder="Cari nama atau NIM praktikan..."
+                            placeholderTextColor="#7F735B"
+                            style={[styles.searchInput, { color: theme.text }]}
+                          />
+                          {rekapSearchPraktikan.length > 0 && (
+                            <Pressable
+                              onPress={() => setRekapSearchPraktikan('')}
+                              style={styles.searchClearButton}>
+                              <ThemedText
+                                type="smallBold"
+                                style={{ color: theme.primary }}>
+                                ✕
+                              </ThemedText>
+                            </Pressable>
+                          )}
+                        </View>
+
                         <ScrollView
                           style={styles.rekapDetailScroll}
                           contentContainerStyle={styles.rekapDetailScrollContent}
@@ -1905,7 +2039,9 @@ export default function AsistenJadwalScreen() {
                               type="small"
                               themeColor="textSecondary"
                               style={styles.noPraktikanMatch}>
-                              Tidak ada praktikan yang cocok dengan pencarian.
+                              {rekapSearchKey
+                                ? 'Tidak ada praktikan yang cocok dengan pencarian.'
+                                : 'Belum ada praktikan pada kelas ini.'}
                             </ThemedText>
                           ) : null}
 
@@ -2439,42 +2575,68 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  rekapHeaderCard: {
-    gap: Spacing.three,
+  flex: {
+    flex: 1,
+  },
+  rekapHeadingBlock: {
+    gap: Spacing.half,
+  },
+  rekapEyebrow: {
+    fontSize: 11,
+    letterSpacing: 0.8,
+  },
+  rekapHeading: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  rekapStatPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: Spacing.four,
     borderRadius: 18,
     borderWidth: 1.5,
   },
-  flex: {
+  rekapStatPanelItem: {
     flex: 1,
-  },
-  rekapTitle: {
-    fontSize: 22,
-    lineHeight: 28,
-  },
-  rekapStatRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  rekapStatCard: {
-    flexGrow: 1,
-    flexBasis: 90,
     alignItems: 'center',
-    gap: 2,
-    paddingVertical: Spacing.two,
-    borderRadius: 12,
-    borderWidth: 1,
+    gap: Spacing.one,
   },
-  rekapStatValue: {
+  rekapStatDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginVertical: Spacing.two,
+  },
+  rekapStatNumber: {
+    fontSize: 26,
+    lineHeight: 32,
+  },
+  rekapListHeading: {
     fontSize: 20,
     lineHeight: 26,
   },
-  rekapControlGroup: {
-    gap: Spacing.one,
+  rekapSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
   },
-  rekapControlLabel: {
-    fontSize: 13,
+  rekapSearchField: {
+    flex: 1,
+  },
+  rekapFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    minHeight: 48,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 14,
+  },
+  backButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   rekapList: {
     gap: Spacing.two,
@@ -2610,11 +2772,15 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 999,
   },
-  detailChip: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 4,
+  detailButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
     borderRadius: 999,
-    borderWidth: 1,
+    borderWidth: 1.5,
   },
   closeDetailButton: {
     paddingHorizontal: Spacing.three,
