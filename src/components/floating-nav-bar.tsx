@@ -1,5 +1,6 @@
 import { router, usePathname } from 'expo-router';
 import { StyleSheet, View, Pressable, Platform } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -29,13 +30,14 @@ export function FloatingNavBar({ tabs }: FloatingNavBarProps) {
     <View
       pointerEvents="box-none"
       style={[styles.floatingContainer, { bottom: bottomInset }]}>
-      <View
+      <BlurView
+        intensity={56}
+        tint="light"
         style={[
           styles.navBarShell,
           {
-            backgroundColor: 'rgba(237, 228, 213, 0.76)',
-            backgroundImage: `linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.34) 34%, rgba(237, 228, 213, 0.62) 100%)`,
-            borderColor: theme.glassBorderHighlight,
+            backgroundColor: 'rgba(255, 255, 255, 0.28)',
+            borderColor: 'rgba(255, 255, 255, 0.78)',
           },
         ]}>
         <View style={styles.tabsRow}>
@@ -53,7 +55,6 @@ export function FloatingNavBar({ tabs }: FloatingNavBarProps) {
                       tab.onPress ? styles.backButton : styles.diamondButton,
                       {
                         backgroundColor: theme.primary,
-                        backgroundImage: `linear-gradient(145deg, ${theme.moss} 0%, ${theme.primary} 76%)`,
                         borderColor: theme.glassBorderHighlight,
                       },
                       pressed && styles.pressed,
@@ -100,7 +101,7 @@ export function FloatingNavBar({ tabs }: FloatingNavBarProps) {
             );
           })}
         </View>
-      </View>
+      </BlurView>
     </View>
   );
 }
@@ -119,12 +120,13 @@ const styles = StyleSheet.create({
     minHeight: 62,
     borderRadius: 32,
     borderWidth: 1,
+    overflow: 'hidden',
     paddingVertical: 6,
     paddingHorizontal: 12,
     shadowColor: '#3A2E12',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
     elevation: 10,
     position: 'relative',
     ...(Platform.OS === 'web'

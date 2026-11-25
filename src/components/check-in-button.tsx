@@ -1,13 +1,15 @@
 import { useState } from 'react';
+import * as Location from 'expo-location';
 import { StyleSheet, View } from 'react-native';
 
 import { ActionButton } from '@/components/action-button';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { checkIn } from '@/services/sessions';
+import { checkInWithLocation, getLaboratoryLocation } from '@/services/sessions';
 import type { CheckInFailureReason, Session } from '@/types';
 import { formatTime } from '@/utils/format';
+import { calculateDistanceMeters } from '@/utils/geo';
 
 const FAILURE_MESSAGES: Record<CheckInFailureReason, string> = {
   unauthorized: 'Kamu belum masuk. Silakan login ulang.',
@@ -17,18 +19,27 @@ const FAILURE_MESSAGES: Record<CheckInFailureReason, string> = {
   'outside-window': 'Waktu praktikum sudah berakhir. Presensi ditutup.',
   excused: 'Kamu tercatat izin pada sesi ini.',
   'already-checked-in': 'Kamu sudah melakukan presensi pada sesi ini.',
+  'outside-radius': 'Kamu berada di luar radius laboratorium.',
+  'location-unavailable': 'Lokasi perangkat tidak tersedia.',
+  'location-inaccurate': 'Lokasi belum cukup akurat. Aktifkan lokasi presisi lalu coba lagi.',
+  'laboratory-unconfigured': 'Koordinat laboratorium belum diatur.',
+  'invalid-qr': 'QR sesi tidak valid atau sudah kedaluwarsa.',
 };
 
 
 type CheckInButtonProps = {
   session: Session | undefined;
   userId: string;
+  attendanceCode: string;
+  laboratoryId: string;
   checkedInAt: string | null;
 };
 
 export function CheckInButton({
   session,
   userId,
+  attendanceCode,
+  laboratoryId,
   checkedInAt,
 }: CheckInButtonProps) {
   const theme = useTheme();
@@ -46,7 +57,37 @@ export function CheckInButton({
     setError(null);
 
     try {
-      const result = await checkIn(session.id, userId);
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        setError('Izin lokasi ditolak. Izinkan akses lokasi untuk presensi.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const accuracy = position.coords.accuracy;
+      if (accuracy === null || accuracy > 50) {
+        setError(FAILURE_MESSAGES['location-inaccurate']);
+        return;
+      }
+      const location = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy,
+      };
+      const laboratory = await getLaboratoryLocation(laboratoryId);
+      if (!laboratory) {
+        setError(FAILURE_MESSAGES['laboratory-unconfigured']);
+        return;
+      }
+      if (accuracy > laboratory.radius) {
+        setError(FAILURE_MESSAGES['location-inaccurate']);
+        return;
+      }
+      if (calculateDistanceMeters(location, laboratory) > laboratory.radius) {
+        setError(FAILURE_MESSAGES['outside-radius']);
+        return;
+      }
+
+      const result = await checkInWithLocation(session.id, userId, location, attendanceCode);
 
       if (!result.ok) {
         setError(FAILURE_MESSAGES[result.reason]);

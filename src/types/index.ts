@@ -15,6 +15,7 @@ export type Schedule = {
   praktikum: string;
   kelas: string;
   ruang: string;
+  laboratoryId?: string;
   date: string;
   startTime: string;
   endTime: string;
@@ -86,7 +87,22 @@ export type CheckInFailureReason =
   | 'excused'
   | 'already-checked-in'
   | 'unauthorized'
-  | 'invalid-role';
+  | 'invalid-role'
+  | 'invalid-qr'
+  | 'outside-radius'
+  | 'location-unavailable'
+  | 'location-inaccurate'
+  | 'laboratory-unconfigured';
+
+export type Coordinates = { latitude: number; longitude: number };
+
+export type CheckInLocation = Coordinates & { accuracy: number };
+
+export type LaboratoryLocation = Coordinates & {
+  id: string;
+  name: string;
+  radius: number;
+};
 
 
 export type CheckInResult =
