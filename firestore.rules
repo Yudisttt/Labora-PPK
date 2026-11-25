@@ -97,16 +97,6 @@ service cloud.firestore {
         && data.assistantId == request.auth.uid;
     }
 
-    function validLaboratory(data) {
-      return data.keys().hasAll(['name', 'latitude', 'longitude', 'radius'])
-        && data.name is string
-        && data.name.size() > 0
-        && (data.latitude is number || data.latitude is float || data.latitude is int)
-        && (data.longitude is number || data.longitude is float || data.longitude is int)
-        && (data.radius is number || data.radius is float || data.radius is int)
-        && data.radius > 0;
-    }
-
     match /users/{uid} {
       allow create: if signedIn()
         && request.auth.uid == uid
@@ -226,12 +216,8 @@ service cloud.firestore {
       allow list: if isAssistant()
         || (isPraktikan() && resource.data.userId == request.auth.uid);
       allow create: if (isPraktikan()
-        && request.resource.data.keys().hasOnly(['sessionId', 'userId', 'checkedInAt', 'status', 'latitude', 'longitude'])
-        && request.resource.data.keys().hasAll([
-          'sessionId', 'userId', 'checkedInAt', 'latitude', 'longitude'
-        ])
-        && request.resource.data.latitude is number
-        && request.resource.data.longitude is number
+        && request.resource.data.keys().hasOnly(['sessionId', 'userId', 'checkedInAt', 'status'])
+        && request.resource.data.keys().hasAll(['sessionId', 'userId', 'checkedInAt'])
         && request.resource.data.userId == request.auth.uid
         && attendanceId == request.resource.data.sessionId + '_' + request.auth.uid
         && request.resource.data.checkedInAt == request.time
@@ -259,13 +245,6 @@ service cloud.firestore {
             request.resource.data.permissionRequestId
           ));
       allow update, delete: if false;
-    }
-
-    match /laboratories/{labId} {
-      allow read: if isKnownUser();
-      allow create: if isAssistant() && validLaboratory(request.resource.data);
-      allow update: if isAssistant() && validLaboratory(request.resource.data);
-      allow delete: if isAssistant();
     }
   }
 }

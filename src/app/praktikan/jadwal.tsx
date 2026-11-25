@@ -23,7 +23,6 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Spacing, Fonts } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
-import { useUserLocation } from "@/hooks/use-user-location";
 import { useApp } from "@/state/app-context";
 import type { Schedule, Session } from "@/types";
 import { formatDate, formatDateTime, formatTime } from "@/utils/format";
@@ -34,7 +33,6 @@ type ScheduleFilter = "all" | "open" | "recorded";
 export default function PraktikanJadwalScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { userLocation, permissionGranted } = useUserLocation();
   const {
     currentUser,
     schedules,
@@ -117,10 +115,6 @@ export default function PraktikanJadwalScreen() {
     activeModalSession && currentUser
       ? isExcused(activeModalSession.id, currentUser.id)
       : false;
-  const attendanceForActiveModal =
-    activeModalSession && currentUser
-      ? myAttendance.find((rec) => rec.sessionId === activeModalSession.id)
-      : null;
 
   function showMessage(title: string, message: string) {
     if (Platform.OS === "web") {
@@ -159,16 +153,7 @@ export default function PraktikanJadwalScreen() {
 
     let result: Awaited<ReturnType<typeof checkIn>>;
     try {
-      result = await checkIn(
-        session.id,
-        currentUser.id,
-        permissionGranted && userLocation
-          ? {
-              latitude: userLocation.latitude,
-              longitude: userLocation.longitude,
-            }
-          : null,
-      );
+      result = await checkIn(session.id, currentUser.id);
     } catch (error) {
       const code =
         error instanceof Error && 'code' in error
@@ -188,13 +173,9 @@ export default function PraktikanJadwalScreen() {
     }
 
     if (result.ok) {
-      const locText =
-        result.record.latitude && result.record.longitude
-          ? ` (Lokasi: ${result.record.latitude.toFixed(5)}, ${result.record.longitude.toFixed(5)})`
-          : '';
       showMessage(
         "Presensi Berhasil",
-        `Kehadiran Anda pada ${schedule.praktikum} (${schedule.kelas}) tercatat pada ${formatTime(result.record.checkedInAt ?? new Date().toISOString())}${locText}.`,
+        `Kehadiran Anda pada ${schedule.praktikum} (${schedule.kelas}) tercatat pada ${formatTime(result.record.checkedInAt ?? new Date().toISOString())}.`,
       );
       return;
     }
@@ -231,21 +212,6 @@ export default function PraktikanJadwalScreen() {
         "Akses Ditolak",
         "Hanya praktikan yang dapat melakukan presensi.",
       );
-    } else if (result.reason === "location-unavailable") {
-      showMessage(
-        "Lokasi Belum Tersedia",
-        "Aktifkan izin lokasi dan pastikan GPS perangkat tersedia sebelum presensi.",
-      );
-    } else if (result.reason === "unknown-laboratory") {
-      showMessage(
-        "Lokasi Lab Belum Terdaftar",
-        "Ruang pada jadwal ini belum terhubung dengan laboratorium yang terdaftar.",
-      );
-    } else if (result.reason === "outside-radius") {
-      showMessage(
-        "Di Luar Radius Laboratorium",
-        "Presensi hanya dapat dilakukan saat berada dalam radius laboratorium di FSM UNDIP.",
-      );
     }
   }
 
@@ -269,10 +235,6 @@ export default function PraktikanJadwalScreen() {
             title="Jadwal & Presensi"
             subtitle="Pantau kehadiran dan sesi aktifmu hari ini"
             actions={[
-              {
-                label: 'Peta Lab',
-                onPress: () => router.push('/praktikan/peta'),
-              },
               {
                 label: 'Ajukan Izin',
                 onPress: () => router.push('/praktikan/izin'),
@@ -634,26 +596,6 @@ export default function PraktikanJadwalScreen() {
                                           : 'Waktu tidak tersedia'}
                                     </ThemedText>
                                   </View>
-                                  {record.status === 'present' && record.latitude && record.longitude ? (
-                                    <View style={styles.historyMetaRow}>
-                                      <ThemedText
-                                        type="small"
-                                        themeColor="textSecondary"
-                                      >
-                                        Lokasi Presensi
-                                      </ThemedText>
-                                      <ThemedText
-                                        type="smallBold"
-                                        style={{
-                                          color: theme.moss,
-                                          flexShrink: 1,
-                                          maxWidth: '70%',
-                                          textAlign: 'right',
-                                        }}>
-                                        📍 {record.latitude.toFixed(5)}, {record.longitude.toFixed(5)}
-                                      </ThemedText>
-                                    </View>
-                                  ) : null}
                                   <View style={styles.historyMetaRow}>
                                     <ThemedText
                                       type="small"
@@ -863,14 +805,6 @@ export default function PraktikanJadwalScreen() {
                           >
                             Anda Sudah Presensi Pada Sesi Ini
                           </ThemedText>
-                          {attendanceForActiveModal?.latitude && attendanceForActiveModal?.longitude ? (
-                            <ThemedText
-                              type="smallBold"
-                              style={{ color: theme.moss, marginTop: 4, textAlign: 'center' }}
-                            >
-                              📍 Titik Presensi: {attendanceForActiveModal.latitude.toFixed(5)}, {attendanceForActiveModal.longitude.toFixed(5)}
-                            </ThemedText>
-                          ) : null}
                         </View>
                       ) : (
                         <Pressable

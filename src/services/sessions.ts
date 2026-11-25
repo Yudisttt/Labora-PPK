@@ -2,7 +2,6 @@ import {
   Timestamp,
   collection,
   doc,
-  getDocs,
   onSnapshot,
   query,
   runTransaction,
@@ -15,10 +14,6 @@ import {
 } from 'firebase/firestore';
 
 import { getFirebaseDb } from '@/services/firebase';
-import {
-  calculateDistanceMeters,
-  resolveLaboratoryForRoom,
-} from '@/services/laboratories';
 import { getPracticumWindowState } from '@/utils/practicum-window';
 
 import type {
@@ -42,8 +37,6 @@ type AttendanceDocument = {
   checkedInAt?: unknown;
   excusedAt?: unknown;
   permissionRequestId?: unknown;
-  latitude?: unknown;
-  longitude?: unknown;
 };
 
 function toIsoString(value: unknown): string | null {
@@ -90,9 +83,6 @@ function toAttendance(
     return null;
   }
 
-  const latitude = typeof data.latitude === 'number' ? data.latitude : null;
-  const longitude = typeof data.longitude === 'number' ? data.longitude : null;
-
   return {
     id,
     sessionId,
@@ -104,8 +94,6 @@ function toAttendance(
       typeof data.permissionRequestId === 'string'
         ? data.permissionRequestId
         : null,
-    latitude,
-    longitude,
   };
 }
 
@@ -261,46 +249,11 @@ export async function createSession(scheduleId: string): Promise<void> {
 export async function checkIn(
   sessionId: string,
   userId: string,
-  coordinates: { latitude: number; longitude: number } | null,
 ): Promise<CheckInResult> {
   const db = getFirebaseDb();
   const sessionRef = doc(db, 'sessions', sessionId);
   const attendanceRef = doc(db, 'attendance', `${sessionId}_${userId}`);
   const checkedInAt = new Date().toISOString();
-  const laboratorySnapshot = await getDocs(collection(db, 'laboratories'));
-  const laboratories = laboratorySnapshot.docs
-    .map((item) => {
-      const data = item.data();
-      if (
-        typeof data.name !== 'string' ||
-        typeof data.latitude !== 'number' ||
-        typeof data.longitude !== 'number' ||
-        typeof data.radius !== 'number'
-      ) {
-        return null;
-      }
-
-      return {
-        id: item.id,
-        name: data.name,
-        latitude: data.latitude,
-        longitude: data.longitude,
-        radius: data.radius,
-      };
-    })
-    .filter((lab): lab is NonNullable<typeof lab> => lab !== null);
-
-  if (
-    !coordinates ||
-    !Number.isFinite(coordinates.latitude) ||
-    coordinates.latitude < -90 ||
-    coordinates.latitude > 90 ||
-    !Number.isFinite(coordinates.longitude) ||
-    coordinates.longitude < -180 ||
-    coordinates.longitude > 180
-  ) {
-    return { ok: false, reason: 'location-unavailable' };
-  }
 
   const outcome = await runTransaction(
     db,
@@ -311,7 +264,7 @@ export async function checkIn(
         return { ok: false, reason: 'unknown-session' };
       }
 
-      if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
+            if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
         return { ok: false, reason: 'not-open' };
       }
 
@@ -326,26 +279,6 @@ export async function checkIn(
       }
 
       const scheduleData = scheduleSnapshot.data();
-
-      const laboratory =
-        typeof scheduleData.ruang === 'string'
-          ? resolveLaboratoryForRoom(laboratories, scheduleData.ruang)
-          : null;
-
-      if (!laboratory) {
-        return { ok: false, reason: 'unknown-laboratory' };
-      }
-
-      if (
-        calculateDistanceMeters(
-          coordinates.latitude,
-          coordinates.longitude,
-          laboratory.latitude,
-          laboratory.longitude,
-        ) > laboratory.radius
-      ) {
-        return { ok: false, reason: 'outside-radius' };
-      }
 
       if (
         typeof scheduleData.date !== 'string' ||
@@ -374,17 +307,12 @@ export async function checkIn(
         return { ok: false, reason: 'already-checked-in' };
       }
 
-      const attendancePayload: Record<string, unknown> = {
+      transaction.set(attendanceRef, {
         sessionId,
         userId,
         status: 'present',
         checkedInAt: serverTimestamp(),
-      };
-
-      attendancePayload.latitude = coordinates.latitude;
-      attendancePayload.longitude = coordinates.longitude;
-
-      transaction.set(attendanceRef, attendancePayload);
+      });
 
       return {
         ok: true,
@@ -396,8 +324,6 @@ export async function checkIn(
           checkedInAt,
           excusedAt: null,
           permissionRequestId: null,
-          latitude: coordinates.latitude,
-          longitude: coordinates.longitude,
         },
       };
     },
