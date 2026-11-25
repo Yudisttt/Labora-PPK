@@ -1,7 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,7 +10,6 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SessionStatusBadge } from '@/components/session-status-badge';
-import { DashboardCapsule } from '@/components/dashboard-ui';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -201,29 +199,65 @@ export default function PraktikanIzinScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => router.back()}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.backButton,
+              { borderColor: '#C8B995' },
+              pressed && styles.pressed,
+            ]}
           >
             <ThemedText type="smallBold" style={{ color: theme.primary }}>
-              ‹ Kembali ke jadwal
+              ← Kembali
             </ThemedText>
           </Pressable>
 
-          <DashboardCapsule
-            title="Pengajuan Izin"
-            subtitle="Pilih sesi praktikum dan jelaskan alasan ketidakhadiranmu."
-          />
+          <View
+            style={[
+              styles.headerCard,
+              { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
+            ]}
+          >
+            <ThemedText type="subtitle" style={styles.headerTitle}>
+              Pengajuan Izin
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Pilih sesi praktikum dan jelaskan alasan ketidakhadiranmu.
+            </ThemedText>
+
+            <View style={styles.headerStatRow}>
+              {[
+                { label: 'Sesi Tersedia', value: availableSessions.length },
+                { label: 'Pengajuan Saya', value: requests.length },
+                {
+                  label: 'Disetujui',
+                  value: requests.filter((item) => item.status === 'approved')
+                    .length,
+                },
+              ].map((stat) => (
+                <View
+                  key={stat.label}
+                  style={[
+                    styles.headerStatCard,
+                    { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
+                  ]}
+                >
+                  <ThemedText
+                    type="smallBold"
+                    style={[styles.headerStatValue, { color: theme.primary }]}
+                  >
+                    {stat.value}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {stat.label}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
+          </View>
 
           <View
             style={[
               styles.formCard,
-              {
-                backgroundColor: 'rgba(247, 241, 231, 0.62)',
-                backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.9) 0%, rgba(247, 241, 231, 0.72) 100%)',
-                borderColor: theme.glassBorderHighlight,
-                ...(Platform.OS === 'web'
-                  ? ({ backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' } as object)
-                  : {}),
-              },
+              { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
             ]}
           >
             <ThemedText type="smallBold">Pilih sesi</ThemedText>
@@ -346,7 +380,7 @@ export default function PraktikanIzinScreen() {
           </View>
 
           <View style={styles.historySection}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
+            <ThemedText type="smallBold" style={styles.sectionTitle}>
               Pengajuan Saya
             </ThemedText>
             {requestsLoading ? (
@@ -361,11 +395,7 @@ export default function PraktikanIzinScreen() {
               <View
                 style={[
                   styles.emptyState,
-                  {
-                    backgroundColor: 'rgba(247, 241, 231, 0.62)',
-                    backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.88) 0%, rgba(237, 228, 213, 0.68) 100%)',
-                    borderColor: theme.glassBorderHighlight,
-                  },
+                  { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
                 ]}
               >
                 <ThemedText type="smallBold">Belum ada pengajuan izin</ThemedText>
@@ -379,51 +409,77 @@ export default function PraktikanIzinScreen() {
                   const requestSession = sessions.find(
                     (session) => session.id === request.sessionId,
                   );
+                  const requestSchedule = requestSession
+                    ? getSchedule(requestSession.scheduleId)
+                    : undefined;
 
                   return (
                     <View
                       key={request.id}
                       style={[
                         styles.requestCard,
-                        {
-                          backgroundColor: 'rgba(247, 241, 231, 0.62)',
-                          backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.88) 0%, rgba(237, 228, 213, 0.68) 100%)',
-                          borderColor: theme.glassBorderHighlight,
-                        },
+                        { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
                       ]}
                     >
                       <View style={styles.requestHeader}>
-                        <ThemedText type="smallBold" style={styles.requestTitle}>
-                          {requestSession ? sessionTitle(requestSession) : 'Sesi praktikum'}
-                        </ThemedText>
-                        <ThemedText
-                          type="smallBold"
-                          style={{
-                            color:
-                              request.status === 'approved'
-                                ? theme.success
-                                : request.status === 'rejected'
-                                  ? theme.danger
-                                  : theme.warning,
-                          }}
+                        <View style={styles.requestHeading}>
+                          <ThemedText type="smallBold">
+                            {requestSession ? sessionTitle(requestSession) : 'Sesi praktikum'}
+                          </ThemedText>
+                          <ThemedText type="small" themeColor="textSecondary">
+                            {requestSchedule
+                              ? `${formatDate(requestSchedule.date)} · ${requestSchedule.startTime}–${requestSchedule.endTime} WIB`
+                              : 'Jadwal tidak ditemukan'}
+                          </ThemedText>
+                        </View>
+                        <View
+                          style={[
+                            styles.statusPill,
+                            {
+                              backgroundColor:
+                                request.status === 'approved'
+                                  ? theme.primary
+                                  : request.status === 'rejected'
+                                    ? theme.danger
+                                    : 'rgba(136, 144, 99, 0.35)',
+                            },
+                          ]}
                         >
-                          {STATUS_LABELS[request.status]}
+                          <ThemedText
+                            type="small"
+                            style={{
+                              color:
+                                request.status === 'pending'
+                                  ? theme.text
+                                  : theme.primaryText,
+                            }}
+                          >
+                            {STATUS_LABELS[request.status]}
+                          </ThemedText>
+                        </View>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.detailBox,
+                          { backgroundColor: '#EDE4D5', borderColor: '#C8B995' },
+                        ]}
+                      >
+                        <ThemedText type="smallBold">Alasan izin</ThemedText>
+                        <ThemedText type="small">{request.reason}</ThemedText>
+                      </View>
+
+                      <View style={styles.requestMetaRow}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          Klasifikasi AI:{' '}
+                          {request.aiPrediction
+                            ? predictionLabel(request.aiPrediction)
+                            : 'Belum tersedia'}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          Diajukan: {formatDateTime(request.submittedAt)}
                         </ThemedText>
                       </View>
-                      <ThemedText type="small">{request.reason}</ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        {request.aiPrediction?.modelVersion === 'permission-reason-v1'
-                          ? `Klasifikasi alasan: ${predictionLabel(request.aiPrediction)}`
-                          : request.aiPrediction
-                            ? `Sentimen EDOM versi lama: ${predictionLabel(request.aiPrediction)}`
-                            : 'Klasifikasi alasan: Belum tersedia'}
-                      </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        Prediksi hanya informasi pendukung; keputusan ditentukan asisten.
-                      </ThemedText>
-                      <ThemedText type="small" themeColor="textSecondary">
-                        Diajukan: {formatDateTime(request.submittedAt)}
-                      </ThemedText>
                     </View>
                   );
                 })}
@@ -447,12 +503,46 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.four,
     gap: Spacing.four,
   },
-  backButton: { alignSelf: 'flex-start', paddingVertical: Spacing.one },
+  backButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  headerCard: {
+    padding: Spacing.four,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    gap: Spacing.two,
+  },
+  headerTitle: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  headerStatRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  headerStatCard: {
+    flexGrow: 1,
+    flexBasis: 90,
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: Spacing.two,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  headerStatValue: {
+    fontSize: 20,
+    lineHeight: 26,
+  },
   formCard: {
     padding: Spacing.three,
     gap: Spacing.two,
-    borderRadius: Spacing.three,
-    borderWidth: 1,
+    borderRadius: 18,
+    borderWidth: 1.5,
   },
   sessionList: { gap: Spacing.two },
   sessionOption: {
@@ -488,11 +578,33 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.two,
   },
   historySection: { gap: Spacing.two },
-  sectionTitle: { fontSize: 24, lineHeight: 32 },
-  emptyState: { padding: Spacing.three, gap: Spacing.one, borderRadius: Spacing.three, borderWidth: 1 },
+  sectionTitle: { fontSize: 14 },
+  emptyState: { padding: Spacing.three, gap: Spacing.one, borderRadius: 16, borderWidth: 1.5 },
   requestList: { gap: Spacing.two },
-  requestCard: { padding: Spacing.three, gap: Spacing.two, borderRadius: Spacing.three, borderWidth: 1 },
-  requestHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: Spacing.two },
-  requestTitle: { flex: 1 },
+  requestCard: {
+    padding: Spacing.three,
+    gap: Spacing.two,
+    borderRadius: 16,
+    borderWidth: 1.5,
+  },
+  requestHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  requestHeading: { flex: 1, gap: 2 },
+  statusPill: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  detailBox: {
+    padding: Spacing.two,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: Spacing.half,
+  },
+  requestMetaRow: { gap: 2 },
   pressed: { opacity: 0.75 },
 });
