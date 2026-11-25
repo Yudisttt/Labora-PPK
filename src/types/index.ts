@@ -46,6 +46,8 @@ export type AttendanceRecord = {
   checkedInAt: string | null;
   excusedAt: string | null;
   permissionRequestId: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 export type PermissionRequestStatus = 'pending' | 'approved' | 'rejected';
@@ -86,9 +88,23 @@ export type CheckInFailureReason =
   | 'excused'
   | 'already-checked-in'
   | 'unauthorized'
-  | 'invalid-role';
+  | 'invalid-role'
+  | 'location-unavailable'
+  | 'unknown-laboratory'
+  | 'outside-radius';
 
 
 export type CheckInResult =
   | { ok: true; record: AttendanceRecord }
   | { ok: false; reason: CheckInFailureReason };
+
+export type Laboratory = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius: number; // in meters (radius presensi)
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};

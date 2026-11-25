@@ -5,6 +5,7 @@ import { ActionButton } from '@/components/action-button';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useUserLocation } from '@/hooks/use-user-location';
 import { checkIn } from '@/services/sessions';
 import type { CheckInFailureReason, Session } from '@/types';
 import { formatTime } from '@/utils/format';
@@ -17,6 +18,9 @@ const FAILURE_MESSAGES: Record<CheckInFailureReason, string> = {
   'outside-window': 'Waktu praktikum sudah berakhir. Presensi ditutup.',
   excused: 'Kamu tercatat izin pada sesi ini.',
   'already-checked-in': 'Kamu sudah melakukan presensi pada sesi ini.',
+  'location-unavailable': 'Lokasi GPS belum tersedia. Aktifkan izin lokasi lalu coba lagi.',
+  'unknown-laboratory': 'Ruang jadwal belum memiliki lokasi laboratorium yang terdaftar.',
+  'outside-radius': 'Presensi hanya dapat dilakukan dalam radius laboratorium yang terdaftar.',
 };
 
 
@@ -32,6 +36,7 @@ export function CheckInButton({
   checkedInAt,
 }: CheckInButtonProps) {
   const theme = useTheme();
+  const { userLocation, permissionGranted } = useUserLocation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +51,16 @@ export function CheckInButton({
     setError(null);
 
     try {
-      const result = await checkIn(session.id, userId);
+      const result = await checkIn(
+        session.id,
+        userId,
+        permissionGranted && userLocation
+          ? {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+            }
+          : null,
+      );
 
       if (!result.ok) {
         setError(FAILURE_MESSAGES[result.reason]);

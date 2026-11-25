@@ -22,12 +22,22 @@ export function AttendanceList({
   const { records, loading, error } = useSessionAttendance(sessionId);
 
   const attendanceByUser = useMemo(() => {
-    const map = new Map<string, { status: string; at: string | null }>();
+    const map = new Map<
+      string,
+      {
+        status: string;
+        at: string | null;
+        latitude?: number | null;
+        longitude?: number | null;
+      }
+    >();
 
     records.forEach((record) =>
       map.set(record.userId, {
         status: record.status,
         at: record.checkedInAt ?? record.excusedAt,
+        latitude: record.latitude,
+        longitude: record.longitude,
       }),
     );
 
@@ -74,6 +84,11 @@ export function AttendanceList({
                 <ThemedText type="small" themeColor="textSecondary">
                   {participant.identityNumber}
                 </ThemedText>
+                {record?.latitude && record?.longitude ? (
+                  <ThemedText type="small" style={{ color: theme.moss, fontSize: 11, marginTop: 2 }}>
+                    📍 Lokasi: {record.latitude.toFixed(5)}, {record.longitude.toFixed(5)}
+                  </ThemedText>
+                ) : null}
               </View>
 
               <ThemedText

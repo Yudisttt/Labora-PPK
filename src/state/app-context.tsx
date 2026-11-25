@@ -42,7 +42,11 @@ type AppContextValue = {
   currentUser: User | null;
   openSession: (sessionId: string) => Promise<void>;
   closeSession: (sessionId: string) => Promise<void>;
-  checkIn: (sessionId: string, userId: string) => Promise<CheckInResult>;
+  checkIn: (
+    sessionId: string,
+    userId: string,
+    coords: { latitude: number; longitude: number } | null,
+  ) => Promise<CheckInResult>;
   getUser: (userId: string) => User | undefined;
   getSchedule: (scheduleId: string) => Schedule | undefined;
   getScheduleForSession: (sessionId: string) => Schedule | undefined;
@@ -226,7 +230,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const checkIn = useCallback(
-    async (sessionId: string, userId: string): Promise<CheckInResult> => {
+    async (
+      sessionId: string,
+      userId: string,
+      coords: { latitude: number; longitude: number } | null,
+    ): Promise<CheckInResult> => {
       if (!currentUser || currentUser.id !== userId) {
         return { ok: false, reason: 'unauthorized' };
       }
@@ -235,7 +243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return { ok: false, reason: 'invalid-role' };
       }
 
-      return writeCheckIn(sessionId, userId);
+      return writeCheckIn(sessionId, userId, coords);
     },
     [currentUser],
   );
