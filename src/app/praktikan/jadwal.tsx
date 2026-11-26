@@ -216,7 +216,7 @@ export default function PraktikanJadwalScreen() {
   return (
     <ThemedView style={styles.screen}>
       <SafeAreaView style={styles.screen} edges={['top']}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 96 }]}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 128 }]}>
           <DashboardCapsule
             title="Jadwal & Presensi"
             subtitle="Pantau kehadiran dan sesi aktifmu hari ini"
@@ -384,13 +384,11 @@ export default function PraktikanJadwalScreen() {
                     <View style={[styles.timeline, { backgroundColor: theme.border }]} />
                     <ThemedText type="small" themeColor="textSecondary">{schedule.endTime}</ThemedText>
                   </View>
-                  <BlurView
-                    intensity={34}
-                    tint="light"
+                  <View
                     style={[
                       styles.eventCard,
                       {
-                        backgroundColor: 'rgba(255, 255, 255, 0.24)',
+                        backgroundColor: theme.glassCard,
                         borderColor: 'rgba(255, 255, 255, 0.82)',
                       },
                     ]}>
@@ -408,7 +406,7 @@ export default function PraktikanJadwalScreen() {
                       style={({ pressed }) => [styles.detailButton, { borderColor: theme.glassBorderHighlight, backgroundColor: 'rgba(255,255,255,0.5)' }, pressed && styles.pressed]}>
                       <ThemedText type="smallBold" style={{ color: theme.primary }}>Detail Sesi</ThemedText>
                     </Pressable>
-                  </BlurView>
+                  </View>
                 </View>
               ))}
             </View>

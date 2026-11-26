@@ -481,7 +481,10 @@ export default function AsistenJadwalScreen() {
     <ThemedView style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: insets.bottom + 128 },
+          ]}
           keyboardShouldPersistTaps="handled">
           {/* Feedback Toast */}
           {feedbackToast ? (
@@ -516,8 +519,7 @@ export default function AsistenJadwalScreen() {
                     style={({ pressed }) => [
                       styles.shortcutTile,
                       {
-                        backgroundColor: theme.glassGreenLight,
-                        backgroundImage: `linear-gradient(145deg, ${theme.glassBorderHighlight} 0%, ${theme.glassGreenSheen} 32%, ${theme.glassGreenLight} 100%)`,
+                        backgroundColor: '#D0CCB5',
                         borderColor: theme.glassBorderHighlight,
                         shadowColor: theme.primary,
                       },
@@ -2162,7 +2164,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
-    paddingBottom: 110,
+    paddingBottom: 128,
     gap: Spacing.four,
   },
   shortcutGrid: {
