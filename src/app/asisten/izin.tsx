@@ -19,7 +19,7 @@ import {
 } from '@/services/permission-requests';
 import { useApp } from '@/state/app-context';
 import type { PermissionDecision, PermissionRequest, PermissionRequestStatus } from '@/types';
-import { formatDateTime } from '@/utils/format';
+import { formatDate, formatDateTime } from '@/utils/format';
 
 type RequestFilter = 'all' | PermissionRequestStatus;
 type PendingDecision = { request: PermissionRequest; decision: PermissionDecision } | null;
@@ -114,15 +114,59 @@ export default function AsistenIzinScreen() {
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.five }]}
         >
-          <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
-            <ThemedText type="smallBold" style={{ color: theme.primary }}>‹ Kembali ke jadwal</ThemedText>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.back()}
+            style={({ pressed }) => [
+              styles.backButton,
+              { borderColor: '#C8B995' },
+              pressed && styles.pressed,
+            ]}
+          >
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              ← Kembali
+            </ThemedText>
           </Pressable>
 
-          <View style={styles.header}>
-            <ThemedText type="subtitle">Pemeriksaan Pengajuan Izin</ThemedText>
-            <ThemedText themeColor="textSecondary">
-              Tinjau alasan dan hasil klasifikasi AI. Keputusan izin tetap ditentukan oleh asisten.
+          <View
+            style={[
+              styles.headerCard,
+              { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
+            ]}
+          >
+            <ThemedText type="subtitle" style={styles.headerTitle}>
+              Pemeriksaan Pengajuan Izin
             </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Tinjau alasan dan hasil klasifikasi AI. Keputusan izin tetap
+              ditentukan oleh asisten.
+            </ThemedText>
+
+            <View style={styles.headerStatRow}>
+              {[
+                { label: 'Menunggu', value: counts.pending },
+                { label: 'Disetujui', value: counts.approved },
+                { label: 'Ditolak', value: counts.rejected },
+              ].map((stat) => (
+                <View
+                  key={stat.label}
+                  style={[
+                    styles.headerStatCard,
+                    { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
+                  ]}
+                >
+                  <ThemedText
+                    type="smallBold"
+                    style={[styles.headerStatValue, { color: theme.primary }]}
+                  >
+                    {stat.value}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {stat.label}
+                  </ThemedText>
+                </View>
+              ))}
+            </View>
           </View>
 
           <View style={styles.filters}>
@@ -135,7 +179,13 @@ export default function AsistenIzinScreen() {
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
                   onPress={() => setFilter(item)}
-                  style={[styles.filterButton, { backgroundColor: selected ? theme.primary : theme.backgroundElement, borderColor: selected ? theme.primary : theme.border }]}
+                  style={[
+                    styles.filterButton,
+                    {
+                      backgroundColor: selected ? theme.primary : '#F7F1E7',
+                      borderColor: selected ? theme.primary : '#C8B995',
+                    },
+                  ]}
                 >
                   <ThemedText type="smallBold" style={{ color: selected ? theme.primaryText : theme.text }}>
                     {label} ({counts[item]})
@@ -167,31 +217,40 @@ export default function AsistenIzinScreen() {
             const category = prediction?.label ? CATEGORY_LABELS[prediction.label] : null;
             const oldModel = prediction?.modelVersion === 'edom-sentiment-v1';
             return (
-              <View key={request.id} style={[styles.requestCard, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+              <View key={request.id} style={[styles.requestCard, { backgroundColor: '#F7F1E7', borderColor: '#C8B995' }]}>
                 <View style={styles.cardHeader}>
                   <View style={styles.cardHeading}>
                     <ThemedText type="smallBold">{request.userName}</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">Sesi: {request.sessionId}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {schedule
+                        ? `${schedule.praktikum} · ${schedule.kelas}`
+                        : 'Sesi praktikum tidak ditemukan'}
+                    </ThemedText>
                   </View>
-                  <View style={[styles.statusPill, { backgroundColor: request.status === 'approved' ? theme.successSoft : request.status === 'rejected' ? theme.dangerSoft : theme.warningSoft }]}>
-                    <ThemedText type="smallBold">{STATUS_LABELS[request.status]}</ThemedText>
+                  <View style={[styles.statusPill, { backgroundColor: request.status === 'approved' ? theme.primary : request.status === 'rejected' ? theme.danger : 'rgba(136, 144, 99, 0.35)' }]}>
+                    <ThemedText
+                      type="small"
+                      style={{ color: request.status === 'pending' ? theme.text : theme.primaryText }}
+                    >
+                      {STATUS_LABELS[request.status]}
+                    </ThemedText>
                   </View>
                 </View>
 
                 {schedule ? (
                   <ThemedText type="small" themeColor="textSecondary">
-                    {schedule.praktikum} · {schedule.kelas} · {schedule.date}
+                    {formatDate(schedule.date)} · {schedule.startTime}–{schedule.endTime} WIB · {schedule.ruang}
                   </ThemedText>
                 ) : null}
 
-                <View style={styles.detailBlock}>
+                <View style={[styles.detailBlock, { backgroundColor: '#EDE4D5', borderColor: '#C8B995' }]}>
                   <ThemedText type="smallBold">Alasan izin</ThemedText>
-                  <ThemedText>{request.reason}</ThemedText>
+                  <ThemedText type="small">{request.reason}</ThemedText>
                 </View>
 
-                <View style={styles.aiBlock}>
+                <View style={[styles.aiBlock, { backgroundColor: '#EDE4D5', borderColor: '#C8B995' }]}>
                   <ThemedText type="smallBold">Klasifikasi AI</ThemedText>
-                  <ThemedText themeColor="textSecondary">
+                  <ThemedText type="small" themeColor="textSecondary">
                     {category ?? (prediction?.status === 'error' ? 'Tidak dapat dianalisis' : 'Belum tersedia')}
                     {oldModel ? ' · Model EDOM lama' : ''}
                   </ThemedText>
@@ -272,21 +331,55 @@ const styles = StyleSheet.create({
     paddingBottom: 110,
     gap: Spacing.three,
   },
-  backButton: { alignSelf: 'flex-start', paddingVertical: Spacing.one },
-  header: { gap: Spacing.half },
+  backButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  headerCard: {
+    padding: Spacing.four,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    gap: Spacing.two,
+  },
+  headerTitle: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
+  headerStatRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  headerStatCard: {
+    flexGrow: 1,
+    flexBasis: 90,
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: Spacing.two,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  headerStatValue: {
+    fontSize: 20,
+    lineHeight: 26,
+  },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
   filterButton: { borderWidth: 1, borderRadius: 999, paddingHorizontal: Spacing.three, paddingVertical: Spacing.two },
-  messageCard: { padding: Spacing.three, borderRadius: 14, borderWidth: 1, gap: Spacing.one },
+  messageCard: { padding: Spacing.three, borderRadius: 14, borderWidth: 1.5, gap: Spacing.one },
   errorCard: { borderColor: '#B42318', backgroundColor: '#FDECEA' },
-  requestCard: { padding: Spacing.three, borderRadius: 16, borderWidth: 1, gap: Spacing.two },
+  requestCard: { padding: Spacing.three, borderRadius: 16, borderWidth: 1.5, gap: Spacing.two },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: Spacing.two },
   cardHeading: { flex: 1, gap: Spacing.half },
-  statusPill: { borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one },
-  detailBlock: { gap: Spacing.one },
-  aiBlock: { gap: Spacing.one, padding: Spacing.two, borderRadius: 10, backgroundColor: '#EDE4D5' },
+  statusPill: { borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: 2 },
+  detailBlock: { gap: Spacing.one, padding: Spacing.two, borderRadius: 10, borderWidth: 1 },
+  aiBlock: { gap: Spacing.one, padding: Spacing.two, borderRadius: 10, borderWidth: 1 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two, marginTop: Spacing.one },
   actionButton: { flexGrow: 1, minWidth: 120, alignItems: 'center', justifyContent: 'center', paddingVertical: Spacing.two, paddingHorizontal: Spacing.three, borderRadius: 10 },
   rejectButton: { borderWidth: 1 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: Spacing.four },
   modalCard: { width: '100%', maxWidth: 440, alignSelf: 'center', borderWidth: 1, borderRadius: 18, padding: Spacing.four, gap: Spacing.three },
+  pressed: { opacity: 0.75 },
 });

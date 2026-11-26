@@ -2,10 +2,13 @@ import {
   Timestamp,
   collection,
   doc,
+  getDocs,
   onSnapshot,
   query,
   runTransaction,
   serverTimestamp,
+  setDoc,
+  getDoc,
   updateDoc,
   where,
   type DocumentData,
@@ -14,14 +17,18 @@ import {
 } from 'firebase/firestore';
 
 import { getFirebaseDb } from '@/services/firebase';
+import { fetchLaboratories, resolveLaboratoryForRoom } from '@/services/laboratories';
 import { getPracticumWindowState } from '@/utils/practicum-window';
 
 import type {
   AttendanceRecord,
+  CheckInLocation,
   CheckInResult,
+  LaboratoryLocation,
   Session,
   SessionStatus,
 } from '@/types';
+import { calculateDistanceMeters } from '@/utils/geo';
 
 type SessionDocument = {
   scheduleId?: unknown;
@@ -29,6 +36,21 @@ type SessionDocument = {
   openedAt?: unknown;
   closedAt?: unknown;
 };
+
+export async function getLaboratoryForRoom(
+  roomName: string,
+): Promise<LaboratoryLocation | null> {
+  const laboratories = await fetchLaboratories();
+  const laboratory = resolveLaboratoryForRoom(laboratories, roomName);
+  if (!laboratory) return null;
+  return {
+    id: laboratory.id,
+    name: laboratory.name,
+    latitude: laboratory.latitude,
+    longitude: laboratory.longitude,
+    radius: laboratory.radius,
+  };
+}
 
 type AttendanceDocument = {
   sessionId?: unknown;
@@ -227,6 +249,30 @@ export async function closeSession(sessionId: string): Promise<void> {
   });
 }
 
+export async function getOrCreateSessionQrCode(sessionId: string): Promise<string> {
+  const db = getFirebaseDb();
+  const sessionSnapshot = await getDoc(doc(db, 'sessions', sessionId));
+  if (!sessionSnapshot.exists() || toSessionStatus(sessionSnapshot.data().status) !== 'open') {
+    throw new Error('Buka sesi terlebih dahulu untuk menampilkan QR presensi.');
+  }
+  const openedAt = sessionSnapshot.data().openedAt;
+  if (!(openedAt instanceof Timestamp)) {
+    throw new Error('Waktu buka sesi belum tersinkron. Coba lagi sebentar.');
+  }
+
+  const codes = collection(db, 'sessions', sessionId, 'attendanceCodes');
+  const activeCodes = await getDocs(query(codes, where('openedAt', '==', openedAt)));
+  if (!activeCodes.empty) return activeCodes.docs[0].id;
+
+  const codeRef = doc(codes);
+  await setDoc(codeRef, {
+    sessionId,
+    openedAt,
+    createdAt: serverTimestamp(),
+  });
+  return codeRef.id;
+}
+
 export async function createSession(scheduleId: string): Promise<void> {
   const db = getFirebaseDb();
   const sessionRef = doc(db, 'sessions', `session_${scheduleId}`);
@@ -246,14 +292,28 @@ export async function createSession(scheduleId: string): Promise<void> {
     });
   });
 }
-export async function checkIn(
+export async function checkInWithLocation(
   sessionId: string,
   userId: string,
+  location: CheckInLocation,
+  attendanceCode?: string,
 ): Promise<CheckInResult> {
+  if (
+    !Number.isFinite(location.latitude) || location.latitude < -90 || location.latitude > 90 ||
+    !Number.isFinite(location.longitude) || location.longitude < -180 || location.longitude > 180 ||
+    !Number.isFinite(location.accuracy) || location.accuracy < 0
+  ) {
+    return { ok: false, reason: 'location-unavailable' };
+  }
+  if (location.accuracy > 50) {
+    return { ok: false, reason: 'location-inaccurate' };
+  }
+
   const db = getFirebaseDb();
   const sessionRef = doc(db, 'sessions', sessionId);
   const attendanceRef = doc(db, 'attendance', `${sessionId}_${userId}`);
   const checkedInAt = new Date().toISOString();
+  const laboratories = await fetchLaboratories();
 
   const outcome = await runTransaction(
     db,
@@ -264,7 +324,7 @@ export async function checkIn(
         return { ok: false, reason: 'unknown-session' };
       }
 
-            if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
+      if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
         return { ok: false, reason: 'not-open' };
       }
 
@@ -279,6 +339,50 @@ export async function checkIn(
       }
 
       const scheduleData = scheduleSnapshot.data();
+
+      const laboratory = typeof scheduleData.ruang === 'string'
+        ? resolveLaboratoryForRoom(laboratories, scheduleData.ruang)
+        : null;
+
+      if (!laboratory) {
+        return { ok: false, reason: 'laboratory-unconfigured' };
+      }
+
+      const laboratoryLatitude = laboratory.latitude;
+      const laboratoryLongitude = laboratory.longitude;
+      const laboratoryRadius = laboratory.radius;
+      if (laboratoryRadius <= 0) {
+        return { ok: false, reason: 'laboratory-unconfigured' };
+      }
+
+      if (location.accuracy > laboratoryRadius) {
+        return { ok: false, reason: 'location-inaccurate' };
+      }
+
+      const distance = calculateDistanceMeters(location, {
+        latitude: laboratoryLatitude,
+        longitude: laboratoryLongitude,
+      });
+      if (distance > laboratoryRadius) {
+        return { ok: false, reason: 'outside-radius' };
+      }
+
+      if (attendanceCode) {
+        const codeRef = doc(db, 'sessions', sessionId, 'attendanceCodes', attendanceCode);
+        const codeSnapshot = await transaction.get(codeRef);
+        const sessionOpenedAt = sessionSnapshot.data().openedAt;
+        const codeOpenedAt = codeSnapshot.exists() ? codeSnapshot.data().openedAt : null;
+        const sameOpenSession = sessionOpenedAt instanceof Timestamp &&
+          codeOpenedAt instanceof Timestamp &&
+          sessionOpenedAt.isEqual(codeOpenedAt);
+        if (
+          !codeSnapshot.exists() ||
+          codeSnapshot.data().sessionId !== sessionId ||
+          !sameOpenSession
+        ) {
+          return { ok: false, reason: 'invalid-qr' };
+        }
+      }
 
       if (
         typeof scheduleData.date !== 'string' ||
@@ -312,6 +416,10 @@ export async function checkIn(
         userId,
         status: 'present',
         checkedInAt: serverTimestamp(),
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracy: location.accuracy,
+        ...(attendanceCode ? { attendanceCode } : {}),
       });
 
       return {

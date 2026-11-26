@@ -118,6 +118,9 @@ export default function ManagePracticumDataScreen() {
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [timeDropdownOpen, setTimeDropdownOpen] = useState(false);
   const [labDropdownOpen, setLabDropdownOpen] = useState(false);
+  const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
+  const [participantUserDropdownOpen, setParticipantUserDropdownOpen] =
+    useState(false);
   const [participantOfferingDropdownOpen, setParticipantOfferingDropdownOpen] =
     useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -146,6 +149,8 @@ export default function ManagePracticumDataScreen() {
   const [repeatWeekly, setRepeatWeekly] = useState(true);
   const [meetingCount, setMeetingCount] = useState('16');
   const [addingMeetingToSeriesId, setAddingMeetingToSeriesId] = useState<string | null>(null);
+  const [meetingQuery, setMeetingQuery] = useState('');
+  const [expandedSeriesId, setExpandedSeriesId] = useState<string | null>(null);
   const loadedStreams = useRef(new Set<string>());
 
   const activeClassId = classes.some((item) => item.id === selectedClassId)
@@ -155,6 +160,7 @@ export default function ManagePracticumDataScreen() {
   const activeUserId = users.some((item) => item.id === selectedUserId)
     ? selectedUserId
     : users[0]?.id ?? '';
+  const activeUser = users.find((item) => item.id === activeUserId);
   const labGroups = useMemo(() => {
     const groups = new Map<
       string,
@@ -304,6 +310,16 @@ export default function ManagePracticumDataScreen() {
     () => new Set(selectedClassParticipants.map((participant) => participant.userId)),
     [selectedClassParticipants],
   );
+  const enrolledInSameCourseUserIds = useMemo(() => {
+    if (!activeClass) return new Set<string>();
+    const courseKey = activeClass.course.trim().toLocaleLowerCase();
+    const sameCourseClassIds = new Set(classes
+      .filter((item) => item.course.trim().toLocaleLowerCase() === courseKey)
+      .map((item) => item.id));
+    return new Set(participants
+      .filter((participant) => sameCourseClassIds.has(participant.classId))
+      .map((participant) => participant.userId));
+  }, [activeClass, classes, participants]);
 
   async function performAction(
     action: () => Promise<unknown>,
@@ -590,6 +606,7 @@ export default function ManagePracticumDataScreen() {
     setEditingScheduleId(schedule.id);
     setReschedulingScheduleId(null);
     setRepeatWeekly(false);
+    setExpandedSeriesId(null);
     setActiveTab('meetings');
   }
 
@@ -604,6 +621,7 @@ export default function ManagePracticumDataScreen() {
     setEditingScheduleId(schedule.id);
     setReschedulingScheduleId(schedule.id);
     setRepeatWeekly(false);
+    setExpandedSeriesId(null);
     setActiveTab('meetings');
   }
 
@@ -690,13 +708,32 @@ export default function ManagePracticumDataScreen() {
   function renderScheduleFields() {
     return (
       <>
-        <DataInput
-          label="Ruang Laboratorium"
-          value={scheduleRoom}
-          onChangeText={updateScheduleRoom}
-          placeholder="Contoh: Lab B"
-          theme={theme}
-        />
+        <View style={styles.inputGroup}>
+          <ThemedText type="smallBold" style={styles.inputLabel}>
+            Ruang Laboratorium
+          </ThemedText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: roomDropdownOpen }}
+            onPress={() => setRoomDropdownOpen(true)}
+            style={[
+              styles.inputContainer,
+              styles.timeDropdownField,
+              {
+                backgroundColor: theme.glassInput,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <ThemedText
+              type="small"
+              style={{ color: scheduleRoom ? theme.text : theme.textSecondary }}>
+              {scheduleRoom || 'Pilih ruang'}
+            </ThemedText>
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              {roomDropdownOpen ? '▲' : '▼'}
+            </ThemedText>
+          </Pressable>
+        </View>
         <View style={styles.inputGroup}>
           <ThemedText type="smallBold" style={styles.inputLabel}>
             {addingMeetingToSeriesId ? 'Tanggal pertemuan' : 'Tanggal pertemuan pertama'}
@@ -961,27 +998,48 @@ export default function ManagePracticumDataScreen() {
                 </Pressable>
               </View>
 
-              <ThemedText type="small">Pilih praktikan</ThemedText>
-              {users.length === 0 ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  Belum ada akun praktikan terdaftar.
+              <View style={styles.inputGroup}>
+                <ThemedText type="smallBold" style={styles.inputLabel}>
+                  Pilih praktikan
                 </ThemedText>
-              ) : (
-                <View style={styles.choiceList}>
-                  {users.map((user) => {
-                    const enrolled = enrolledUserIds.has(user.id);
-                    return (
-                      <ChoiceChip
-                        key={user.id}
-                        label={`${user.name}${enrolled ? ' · sudah terdaftar' : ''}`}
-                        selected={activeUserId === user.id}
-                        disabled={enrolled}
-                        onPress={() => setSelectedUserId(user.id)}
-                      />
-                    );
-                  })}
-                </View>
-              )}
+                {users.length === 0 ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    Belum ada akun praktikan terdaftar.
+                  </ThemedText>
+                ) : (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      expanded: participantUserDropdownOpen,
+                    }}
+                    onPress={() => setParticipantUserDropdownOpen(true)}
+                    style={[
+                      styles.inputContainer,
+                      styles.timeDropdownField,
+                      {
+                        backgroundColor: theme.glassInput,
+                        borderColor: theme.glassBorder,
+                      },
+                    ]}>
+                    <ThemedText
+                      type="small"
+                      style={{
+                        color: activeUser
+                          ? theme.text
+                          : theme.textSecondary,
+                      }}>
+                      {activeUser
+                        ? `${activeUser.name} · ${activeUser.identityNumber}`
+                        : 'Pilih praktikan'}
+                    </ThemedText>
+                    <ThemedText
+                      type="smallBold"
+                      style={{ color: theme.primary }}>
+                      {participantUserDropdownOpen ? '▲' : '▼'}
+                    </ThemedText>
+                  </Pressable>
+                )}
+              </View>
               <ActionButton
                 label="Tambahkan peserta"
                 onPress={assignParticipant}
@@ -989,7 +1047,7 @@ export default function ManagePracticumDataScreen() {
                   busy ||
                   !activeClassId ||
                   !activeUserId ||
-                  enrolledUserIds.has(activeUserId)
+                  enrolledInSameCourseUserIds.has(activeUserId)
                 }
                 primary
               />
@@ -1229,49 +1287,201 @@ export default function ManagePracticumDataScreen() {
     const sortedSchedules = [...schedules].sort((a, b) =>
       `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`),
     );
+
+    const searchKey = meetingQuery.trim().toLowerCase();
+    const matchesQuery = (praktikum: string, ruang: string) =>
+      !searchKey ||
+      praktikum.toLowerCase().includes(searchKey) ||
+      ruang.toLowerCase().includes(searchKey);
+
+    // Satu baris per seri pertemuan; jadwal tunggal juga punya detail sendiri
+    const groupRows = scheduleSeries.map((series) => ({
+      rowKey: `series:${series.id}`,
+      seriesId: series.id,
+      scheduleId: null as string | null,
+      praktikum: series.template.praktikum,
+      kelas: series.template.kelas,
+      ruang: series.template.ruang,
+      firstDate: series.meetings[0]?.date ?? series.template.date,
+      count: series.meetings.filter(
+        (meeting) => meeting.status !== 'cancelled',
+      ).length,
+      active: series.active,
+    }));
+
+    const singleRows = sortedSchedules
+      .filter((schedule) => !schedule.seriesId)
+      .map((schedule) => ({
+        rowKey: `schedule:${schedule.id}`,
+        seriesId: null as string | null,
+        scheduleId: schedule.id,
+        praktikum: schedule.praktikum,
+        kelas: schedule.kelas,
+        ruang: schedule.ruang,
+        firstDate: schedule.date,
+        count: 1,
+        active: schedule.status !== 'cancelled',
+      }));
+
+    const meetingRows = [...groupRows, ...singleRows]
+      .filter((row) => matchesQuery(row.praktikum, row.ruang))
+      .sort((a, b) => a.firstDate.localeCompare(b.firstDate));
+
+    const expandedSeries = expandedSeriesId
+      ? scheduleSeries.find((series) => series.id === expandedSeriesId)
+      : undefined;
+
+    const expandedSchedule =
+      !expandedSeries && expandedSeriesId
+        ? schedules.find((schedule) => schedule.id === expandedSeriesId)
+        : undefined;
+
     return (
       <>
-        {addingMeetingToSeriesId || editingScheduleId || reschedulingScheduleId ? (
-          renderScheduleEditor()
-        ) : (
-          <View style={styles.section}>
-            <ThemedText type="smallBold">Tambah pertemuan ke jadwal rutin</ThemedText>
-            {scheduleSeries.filter((series) => series.active).length === 0 ? (
-              <EmptyState text="Buat jadwal rutin di tab Jadwal terlebih dahulu." />
-            ) : (
-              scheduleSeries
-                .filter((series) => series.active)
-                .map(({ id, template }) => (
+        {addingMeetingToSeriesId || editingScheduleId || reschedulingScheduleId
+          ? renderScheduleEditor()
+          : null}
+
+        <View style={styles.section}>
+          <ThemedText type="smallBold">Daftar pertemuan</ThemedText>
+
+          <View
+            style={[
+              styles.searchBar,
+              {
+                backgroundColor: theme.glassInput,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <TextInput
+              value={meetingQuery}
+              onChangeText={setMeetingQuery}
+              placeholder="Cari nama praktikum atau lab"
+              placeholderTextColor={theme.textSecondary}
+              style={[styles.searchInput, { color: theme.text }]}
+            />
+            {meetingQuery.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Hapus pencarian"
+                onPress={() => setMeetingQuery('')}>
+                <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                  ✕
+                </ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {meetingRows.length === 0 ? (
+            <EmptyState text="Tidak ada pertemuan yang cocok dengan pencarian." />
+          ) : (
+            <View style={styles.meetingList}>
+              {meetingRows.map((row, index) => {
+                const rowId = row.seriesId ?? row.scheduleId;
+                const expanded = expandedSeriesId === rowId;
+
+                return (
                   <ThemedView
-                    key={`meeting-series-${id}`}
+                    key={row.rowKey}
                     type="backgroundElement"
                     style={[
-                      styles.card,
-                      { backgroundColor: theme.glassCard, borderColor: theme.glassBorder },
+                      styles.meetingCard,
+                      {
+                        backgroundColor: '#F7F1E7',
+                        borderColor: expanded ? theme.primary : '#C8B995',
+                      },
                     ]}>
-                    <ThemedText type="smallBold">{template.praktikum}</ThemedText>
-                    <ThemedText type="small" themeColor="textSecondary">
-                      {template.kelas} · {template.ruang} · {template.startTime}–{template.endTime}
-                    </ThemedText>
-                    <ActionButton
-                      label="Tambah tanggal pertemuan"
-                      onPress={() => beginAddSeriesMeeting(id)}
-                      disabled={busy}
-                      primary
-                    />
-                  </ThemedView>
-                ))
-            )}
-          </View>
-        )}
+                    <View style={styles.listRow}>
+                      <View style={styles.flex}>
+                        <ThemedText type="smallBold">
+                          {index + 1}. {row.praktikum}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {row.kelas} · {row.ruang}
+                        </ThemedText>
+                      </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Lihat detail ${row.praktikum}`}
+                        onPress={() =>
+                          setExpandedSeriesId(expanded ? null : rowId)
+                        }
+                        style={({ pressed }) => [
+                          styles.detailButton,
+                          {
+                            borderColor: theme.primary,
+                            backgroundColor: expanded
+                              ? theme.primary
+                              : 'transparent',
+                          },
+                          pressed && styles.pressedRow,
+                        ]}>
+                        <ThemedText
+                          type="smallBold"
+                          style={{
+                            color: expanded ? theme.primaryText : theme.primary,
+                          }}>
+                          {expanded ? 'Tutup Detail' : 'Lihat Detail'}
+                        </ThemedText>
+                        <ThemedText
+                          type="smallBold"
+                          style={{
+                            color: expanded ? theme.primaryText : theme.primary,
+                          }}>
+                          {expanded ? '∨' : '›'}
+                        </ThemedText>
+                      </Pressable>
+                    </View>
 
-        <ThemedText type="smallBold">Daftar pertemuan</ThemedText>
-        {schedules.length === 0 ? (
-          <EmptyState text="Tambahkan pertemuan untuk jadwal rutin yang sudah dibuat." />
-        ) : (
-          sortedSchedules.map((schedule) => (
+                    <View style={styles.meetingCardMetaRow}>
+                      <View style={styles.meetingCardMetaItem}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          Tanggal Mulai
+                        </ThemedText>
+                        <ThemedText type="smallBold">
+                          {formatDate(row.firstDate)}
+                        </ThemedText>
+                      </View>
+                      <View style={styles.meetingCardMetaItem}>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          Status
+                        </ThemedText>
+                        <View style={styles.meetingCardStatusRow}>
+                          <View
+                            style={[
+                              styles.statusPill,
+                              {
+                                backgroundColor: row.active
+                                  ? theme.primary
+                                  : 'rgba(53, 64, 36, 0.15)',
+                              },
+                            ]}>
+                            <ThemedText
+                              type="small"
+                              style={{
+                                color: row.active
+                                  ? theme.primaryText
+                                  : theme.text,
+                              }}>
+                              {row.active ? 'Aktif' : 'Selesai'}
+                            </ThemedText>
+                          </View>
+                          <ThemedText
+                            type="small"
+                            themeColor="textSecondary">
+                            {row.count} pertemuan
+                          </ThemedText>
+                        </View>
+                      </View>
+                    </View>
+                  </ThemedView>
+                );
+              })}
+            </View>
+          )}
+
+          {expandedSeries && (
             <ThemedView
-              key={schedule.id}
               type="backgroundElement"
               style={[
                 styles.card,
@@ -1280,57 +1490,228 @@ export default function ManagePracticumDataScreen() {
                   borderColor: theme.glassBorder,
                 },
               ]}>
-              <ThemedText type="smallBold">{schedule.praktikum}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {schedule.kelas} · {schedule.ruang}
-              </ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {schedule.seriesId ? `Pertemuan ${schedule.seriesIndex ?? ''} · ` : ''}{formatDate(schedule.date)} · {schedule.startTime}–{schedule.endTime}
-              </ThemedText>
-              {schedule.status === 'cancelled' ? (
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Dibatalkan saat jadwal rutin diakhiri.
-                </ThemedText>
-              ) : null}
-              {schedule.status === 'rescheduled' ? (
-                <ThemedText type="small" style={{ color: theme.warning }}>
-                  Dipindahkan; jadwal ini tetap tersimpan sebagai riwayat.
-                </ThemedText>
-              ) : null}
-              {schedule.originalScheduleId ? (
-                <ThemedText type="small" style={{ color: theme.primary }}>
-                  Jadwal pengganti satu pertemuan.
-                </ThemedText>
-              ) : null}
-              {schedule.status !== 'cancelled' ? <View style={styles.buttonRow}>
-                <ActionButton
-                  label="Ubah"
-                  onPress={() => beginEditSchedule(schedule)}
-                  disabled={busy || Boolean(editingScheduleId)}
-                />
-                {schedule.status !== 'rescheduled' ? (
+              <View style={styles.listRow}>
+                <View style={styles.flex}>
+                  <ThemedText type="smallBold">
+                    Detail {expandedSeries.template.praktikum}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {expandedSeries.template.kelas} · {expandedSeries.template.ruang} ·{' '}
+                    {expandedSeries.template.startTime}–
+                    {expandedSeries.template.endTime}
+                  </ThemedText>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Tutup detail pertemuan"
+                  onPress={() => setExpandedSeriesId(null)}
+                  style={({ pressed }) => [
+                    styles.closeDetailButton,
+                    {
+                      backgroundColor: theme.glassInput,
+                      borderColor: theme.glassBorder,
+                    },
+                    pressed && styles.pressedRow,
+                  ]}>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                    Tutup Detail
+                  </ThemedText>
+                </Pressable>
+              </View>
+
+              {expandedSeries.meetings.map((meeting) => {
+                const isPast = meeting.date < todayKey();
+                const cancelled = meeting.status === 'cancelled';
+                const rescheduled = meeting.status === 'rescheduled';
+
+                return (
+                  <View key={meeting.id} style={styles.meetingDetailRow}>
+                    <View style={styles.flex}>
+                      <ThemedText type="smallBold">
+                        Pertemuan {meeting.seriesIndex}
+                      </ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {formatDate(meeting.date)} · {meeting.startTime}–
+                        {meeting.endTime}
+                      </ThemedText>
+                    </View>
+                    <View style={styles.meetingDetailMeta}>
+                      <ThemedText
+                        type="smallBold"
+                        style={{
+                          color: cancelled
+                            ? theme.textSecondary
+                            : isPast
+                              ? theme.textSecondary
+                              : theme.primary,
+                        }}>
+                        {cancelled
+                          ? 'Dibatalkan'
+                          : rescheduled
+                            ? 'Dipindahkan'
+                            : isPast
+                              ? 'Selesai'
+                              : 'Mendatang'}
+                      </ThemedText>
+                    </View>
+                    {!cancelled && !rescheduled && !isPast ? (
+                      <View style={styles.buttonRow}>
+                        <ActionButton
+                          label="Ubah"
+                          onPress={() => beginEditSchedule(meeting)}
+                          disabled={busy || Boolean(editingScheduleId)}
+                        />
+                        <ActionButton
+                          label="Pindah"
+                          onPress={() => beginReschedule(meeting)}
+                          disabled={busy || Boolean(editingScheduleId)}
+                        />
+                        <ActionButton
+                          label="Hapus"
+                          onPress={() =>
+                            setDeleteTarget({
+                              type: 'schedule',
+                              id: meeting.id,
+                              label: `${expandedSeries.template.praktikum} · Pertemuan ${meeting.seriesIndex}`,
+                            })
+                          }
+                          disabled={busy}
+                          danger
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              {expandedSeries.active ? (
+                <View style={styles.buttonRow}>
                   <ActionButton
-                    label="Pindah"
-                    onPress={() => beginReschedule(schedule)}
+                    label="Tambah pertemuan"
+                    onPress={() => beginAddSeriesMeeting(expandedSeries.id)}
                     disabled={busy || Boolean(editingScheduleId)}
+                    primary
                   />
-                ) : null}
-                {!schedule.seriesId ? <ActionButton
-                  label="Hapus"
-                  onPress={() =>
-                    setDeleteTarget({
-                      type: 'schedule',
-                      id: schedule.id,
-                      label: schedule.praktikum,
-                    })
-                  }
-                  disabled={busy || Boolean(editingScheduleId)}
-                  danger
-                /> : null}
-              </View> : null}
+                  <ActionButton
+                    label="Akhiri jadwal"
+                    onPress={() =>
+                      setDeleteTarget({
+                        type: 'series',
+                        id: expandedSeries.id,
+                        label: expandedSeries.template.praktikum,
+                      })
+                    }
+                    disabled={busy}
+                    danger
+                  />
+                </View>
+              ) : null}
             </ThemedView>
-          ))
-        )}
+          )}
+
+          {expandedSchedule && (
+            <ThemedView
+              type="backgroundElement"
+              style={[
+                styles.card,
+                {
+                  backgroundColor: theme.glassCard,
+                  borderColor: theme.glassBorder,
+                },
+              ]}>
+              <View style={styles.listRow}>
+                <View style={styles.flex}>
+                  <ThemedText type="smallBold">
+                    Detail {expandedSchedule.praktikum}
+                  </ThemedText>
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {expandedSchedule.kelas} · {expandedSchedule.ruang} ·{' '}
+                    {expandedSchedule.startTime}–{expandedSchedule.endTime}
+                  </ThemedText>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Tutup detail pertemuan"
+                  onPress={() => setExpandedSeriesId(null)}
+                  style={({ pressed }) => [
+                    styles.closeDetailButton,
+                    {
+                      backgroundColor: theme.glassInput,
+                      borderColor: theme.glassBorder,
+                    },
+                    pressed && styles.pressedRow,
+                  ]}>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
+                    Tutup Detail
+                  </ThemedText>
+                </Pressable>
+              </View>
+
+              {(() => {
+                const isPast = expandedSchedule.date < todayKey();
+                const cancelled = expandedSchedule.status === 'cancelled';
+                const rescheduled = expandedSchedule.status === 'rescheduled';
+
+                return (
+                  <View style={styles.meetingDetailRow}>
+                    <View style={styles.flex}>
+                      <ThemedText type="smallBold">Pertemuan 1</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {formatDate(expandedSchedule.date)} ·{' '}
+                        {expandedSchedule.startTime}–{expandedSchedule.endTime}
+                      </ThemedText>
+                    </View>
+                    <View style={styles.meetingDetailMeta}>
+                      <ThemedText
+                        type="smallBold"
+                        style={{
+                          color: cancelled
+                            ? theme.textSecondary
+                            : isPast
+                              ? theme.textSecondary
+                              : theme.primary,
+                        }}>
+                        {cancelled
+                          ? 'Dibatalkan'
+                          : rescheduled
+                            ? 'Dipindahkan'
+                            : isPast
+                              ? 'Selesai'
+                              : 'Mendatang'}
+                      </ThemedText>
+                    </View>
+                    {!cancelled && !rescheduled && !isPast ? (
+                      <View style={styles.buttonRow}>
+                        <ActionButton
+                          label="Ubah"
+                          onPress={() => beginEditSchedule(expandedSchedule)}
+                          disabled={busy || Boolean(editingScheduleId)}
+                        />
+                        <ActionButton
+                          label="Pindah"
+                          onPress={() => beginReschedule(expandedSchedule)}
+                          disabled={busy || Boolean(editingScheduleId)}
+                        />
+                        <ActionButton
+                          label="Hapus"
+                          onPress={() =>
+                            setDeleteTarget({
+                              type: 'schedule',
+                              id: expandedSchedule.id,
+                              label: expandedSchedule.praktikum,
+                            })
+                          }
+                          disabled={busy}
+                          danger
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })()}
+            </ThemedView>
+          )}
+        </View>
       </>
     );
   }
@@ -1761,11 +2142,17 @@ export default function ManagePracticumDataScreen() {
               },
             ]}>
             <ThemedText type="smallBold">
-              {deleteTarget?.type === 'series' ? 'Akhiri jadwal rutin?' : 'Hapus data?'}
+              {deleteTarget?.type === 'series'
+                ? 'Akhiri jadwal rutin?'
+                : deleteTarget?.type === 'class'
+                  ? 'Hapus Lab beserta seluruh datanya?'
+                  : 'Hapus data?'}
             </ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               {deleteTarget?.type === 'series'
                 ? `Akhiri ${deleteTarget.label}? Pertemuan mendatang akan dibatalkan, sementara pertemuan dan riwayat yang sudah lewat tetap tersimpan.`
+                : deleteTarget?.type === 'class'
+                  ? `Hapus ${deleteTarget.label}? Semua peserta, jadwal, sesi, kode QR, presensi, dan pengajuan izin di Lab ini juga akan dihapus. Tindakan ini tidak dapat dibatalkan.`
                 : `Yakin ingin menghapus ${deleteTarget?.label}? Tindakan ini tidak dapat dibatalkan.`}
             </ThemedText>
             <View style={styles.buttonRow}>
@@ -1781,6 +2168,124 @@ export default function ManagePracticumDataScreen() {
                 danger
               />
             </View>
+          </ThemedView>
+        </View>
+      </Modal>
+      <Modal
+        visible={roomDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRoomDropdownOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Tutup pilihan ruang"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setRoomDropdownOpen(false)}
+          />
+          <ThemedView
+            type="backgroundElement"
+            style={[
+              styles.timePickerCard,
+              {
+                backgroundColor: theme.glassCard,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <ThemedText type="smallBold">Pilih ruang laboratorium</ThemedText>
+            <ScrollView
+              style={styles.dropdownScroll}
+              contentContainerStyle={styles.timeDropdownListContent}
+              showsVerticalScrollIndicator>
+              {labGroups.map((lab) => {
+                const selected =
+                  scheduleRoom.trim().toLowerCase() ===
+                  lab.name.trim().toLowerCase();
+
+                return (
+                  <Pressable
+                    key={`room-option-${lab.name}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    onPress={() => {
+                      updateScheduleRoom(lab.name);
+                      setRoomDropdownOpen(false);
+                    }}
+                    style={[
+                      styles.timeDropdownOption,
+                      selected && { backgroundColor: theme.glassInput },
+                    ]}>
+                    <ThemedText type="smallBold">{lab.name}</ThemedText>
+                  </Pressable>
+                );
+              })}
+              {labGroups.length === 0 ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  Belum ada lab. Tambahkan kelas di tab Labs terlebih dahulu.
+                </ThemedText>
+              ) : null}
+            </ScrollView>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={participantUserDropdownOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setParticipantUserDropdownOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Tutup pilihan praktikan"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setParticipantUserDropdownOpen(false)}
+          />
+          <ThemedView
+            type="backgroundElement"
+            style={[
+              styles.timePickerCard,
+              {
+                backgroundColor: theme.glassCard,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <ThemedText type="smallBold">Pilih praktikan</ThemedText>
+            <ScrollView
+              style={styles.dropdownScroll}
+              contentContainerStyle={styles.timeDropdownListContent}
+              showsVerticalScrollIndicator>
+              {users.map((user) => {
+                const enrolled = enrolledUserIds.has(user.id);
+                const enrolledInCourse = enrolledInSameCourseUserIds.has(user.id);
+                const selected = activeUserId === user.id;
+
+                return (
+                  <Pressable
+                    key={`user-option-${user.id}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected, disabled: enrolledInCourse }}
+                    disabled={enrolledInCourse}
+                    onPress={() => {
+                      setSelectedUserId(user.id);
+                      setParticipantUserDropdownOpen(false);
+                    }}
+                    style={[
+                      styles.timeDropdownOption,
+                      selected && { backgroundColor: theme.glassInput },
+                      enrolledInCourse && styles.dimmed,
+                    ]}>
+                    <View style={styles.flex}>
+                      <ThemedText type="smallBold">{user.name}</ThemedText>
+                      <ThemedText type="small" themeColor="textSecondary">
+                        {user.identityNumber}
+                        {enrolled ? ' · sudah terdaftar' : enrolledInCourse ? ' · sudah terdaftar di praktikum ini' : ''}
+                      </ThemedText>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </ThemedView>
         </View>
       </Modal>
@@ -1859,45 +2364,6 @@ function ActionButton({
       <ThemedText
         type="smallBold"
         style={{ color, fontSize: 13 }}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
-function ChoiceChip({
-  label,
-  selected,
-  disabled = false,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  const theme = useTheme();
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected, disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.choiceChip,
-        {
-          backgroundColor: selected ? theme.primary : theme.glassCard,
-          borderColor: selected ? theme.primary : theme.glassBorder,
-        },
-        disabled && styles.dimmed,
-      ]}>
-      <ThemedText
-        type="smallBold"
-        style={{
-          color: selected ? theme.primaryText : theme.text,
-          fontSize: 12,
-        }}>
         {label}
       </ThemedText>
     </Pressable>
@@ -1997,7 +2463,7 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   inputGroup: {
-    flex: 1,
+    flexShrink: 0,
     gap: Spacing.one,
   },
   inputLabel: {
@@ -2013,12 +2479,6 @@ const styles = StyleSheet.create({
   input: {
     fontSize: 14,
     padding: 0,
-  },
-  choiceList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.one,
-    paddingVertical: Spacing.half,
   },
   timeSlotGroup: {
     gap: Spacing.one,
@@ -2040,6 +2500,16 @@ const styles = StyleSheet.create({
   },
   timeDropdownList: {
     flexShrink: 1,
+  },
+  dropdownScroll: {
+    flexShrink: 1,
+    maxHeight: 280,
+  },
+  closeDetailButton: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   timeDropdownListContent: {
     padding: Spacing.two,
@@ -2082,6 +2552,115 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.one,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(136, 144, 99, 0.2)',
+  },
+  filterChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    minHeight: 48,
+    paddingHorizontal: Spacing.three,
+    borderWidth: 1.5,
+    borderRadius: 14,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: Spacing.two,
+    fontSize: 14,
+  },
+  meetingList: {
+    gap: Spacing.two,
+  },
+  meetingCard: {
+    padding: Spacing.three,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    gap: Spacing.two,
+  },
+  meetingCardMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.three,
+  },
+  meetingCardMetaItem: {
+    gap: 2,
+  },
+  meetingCardStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  tableCard: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: '#C8B995',
+    overflow: 'hidden',
+    backgroundColor: '#F7F1E7',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.two,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(200, 185, 149, 0.6)',
+  },
+  tableHeaderRow: {
+    backgroundColor: 'rgba(136, 144, 99, 0.3)',
+  },
+  tableRowZebra: {
+    backgroundColor: 'rgba(136, 144, 99, 0.08)',
+  },
+  pressedRow: {
+    opacity: 0.65,
+  },
+  tableCellNo: {
+    width: 28,
+  },
+  tableCellMain: {
+    flex: 1,
+    gap: 2,
+  },
+  tableCellDate: {
+    width: 116,
+  },
+  tableCellStatus: {
+    width: 96,
+    gap: 2,
+  },
+  tableCellAction: {
+    width: 76,
+    alignItems: 'flex-end',
+  },
+  statusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  detailButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: 999,
+    borderWidth: 1.5,
+  },
+  meetingDetailRow: {
+    gap: Spacing.one,
+    paddingVertical: Spacing.two,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(136, 144, 99, 0.2)',
+  },
+  meetingDetailMeta: {
+    alignItems: 'flex-end',
   },
   flex: {
     flex: 1,
