@@ -12,11 +12,23 @@ const praktikanTabs: TabItem[] = [
     route: '/praktikan/jadwal',
   },
   {
+    key: 'izin',
+    label: 'Ajukan Izin',
+    iconName: 'document-text-outline',
+    route: '/praktikan/izin',
+  },
+  {
     key: 'presensi',
     label: 'Scan QR Presensi',
     iconName: 'qr-code-outline',
     route: '/praktikan/presensi',
     isCenter: true,
+  },
+  {
+    key: 'notifikasi',
+    label: 'Pemberitahuan',
+    iconName: 'notifications-outline',
+    route: '/praktikan/notifikasi',
   },
   {
     key: 'peta',

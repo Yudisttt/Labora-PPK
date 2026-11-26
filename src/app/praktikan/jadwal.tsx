@@ -50,7 +50,9 @@ function getHistoryStatus(
   todayDateKey: string,
 ): 'Hadir' | 'Izin' | 'Sakit' | 'Alpha' | null {
   if (record?.status === 'present') return 'Hadir';
+  if (record?.status === 'absent') return 'Alpha';
   if (record?.status === 'excused') {
+    if (record.manualReason) return record.manualReason === 'sakit' ? 'Sakit' : 'Izin';
     const reason = record.permissionRequestId
       ? requests.find((request) => request.id === record.permissionRequestId)?.reason ?? ''
       : '';
@@ -220,8 +222,6 @@ export default function PraktikanJadwalScreen() {
           <DashboardCapsule
             title="Jadwal & Presensi"
             subtitle="Pantau kehadiran dan sesi aktifmu hari ini"
-            actions={[{ label: 'Ajukan Izin', onPress: () => router.push('/praktikan/izin') },
-                      { label: 'Pemberitahuan', onPress: () => router.push('/praktikan/notifikasi') },]}
             stats={[
               { label: 'Semua Jadwal', value: schedules.length, active: currentTab === 'jadwal' && currentFilter !== 'alpha', onPress: () => { router.setParams({ view: undefined }); setDashboardFilter(null); setActiveTab('jadwal'); } },
               { label: 'Sesi Dibuka', value: openSessionCount, active: false, onPress: () => router.navigate('/praktikan/presensi') },
@@ -244,8 +244,9 @@ export default function PraktikanJadwalScreen() {
                 didSetInitialScroll.current = true;
               }
             }}>
-            {calendarDays.map(({ day, shortDay, dateNumber, date }) => {
+            {calendarDays.map(({ shortDay, dateNumber, date }) => {
               const selected = selectedDate.toDateString() === date.toDateString();
+              const monthLabel = date.toLocaleDateString('id-ID', { month: 'short' }).replace(/\./g, '');
               return (
                 <Pressable
                   key={date.toISOString()}
@@ -259,6 +260,7 @@ export default function PraktikanJadwalScreen() {
                   }]}>
                   <ThemedText type="smallBold" style={{ color: selected ? theme.primaryText : theme.primary }}>{shortDay}</ThemedText>
                   <ThemedText type="smallBold" style={{ color: selected ? theme.primaryText : theme.primary }}>{dateNumber}</ThemedText>
+                  <ThemedText type="small" style={{ color: selected ? theme.primaryText : theme.primary, fontSize: 9, lineHeight: 11 }}>{monthLabel}</ThemedText>
                 </Pressable>
               );
             })}

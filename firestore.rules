@@ -309,7 +309,41 @@ service cloud.firestore {
             request.resource.data.sessionId,
             request.resource.data.userId,
             request.resource.data.permissionRequestId
-          ));
+          ))
+        || (isAssistant()
+          && request.resource.data.keys().hasOnly([
+            'sessionId', 'userId', 'status', 'checkedInAt', 'manualBy',
+            'manualAt', 'excusedAt', 'manualReason'
+          ])
+          && request.resource.data.keys().hasAll([
+            'sessionId', 'userId', 'status', 'checkedInAt', 'manualBy'
+          ])
+          && request.resource.data.sessionId is string
+          && request.resource.data.userId is string
+          && request.resource.data.manualBy == request.auth.uid
+          && ((request.resource.data.status == 'present'
+              && request.resource.data.checkedInAt == request.time
+              && !('manualAt' in request.resource.data)
+              && !('excusedAt' in request.resource.data)
+              && !('manualReason' in request.resource.data))
+            || (request.resource.data.status == 'absent'
+              && request.resource.data.checkedInAt == null
+              && request.resource.data.manualAt == request.time
+              && !('excusedAt' in request.resource.data)
+              && !('manualReason' in request.resource.data))
+            || (request.resource.data.status == 'excused'
+              && request.resource.data.checkedInAt == null
+              && request.resource.data.excusedAt == request.time
+              && request.resource.data.manualReason in ['izin', 'sakit']
+              && !('manualAt' in request.resource.data)))
+          && attendanceId == request.resource.data.sessionId + '_' + request.resource.data.userId
+          && assistantOwnsSession(request.resource.data.sessionId)
+          && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.status == 'open'
+          && get(/databases/$(database)/documents/schedules/$(get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.scheduleId)).data.classId is string
+          && exists(participantPath(
+            get(/databases/$(database)/documents/schedules/$(get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.scheduleId)).data.classId,
+            request.resource.data.userId
+          )));
       allow update, delete: if false;
     }
   }

@@ -63,6 +63,7 @@ export default function PresensiScreen() {
   const { currentUser, schedules, sessions, checkIn, getScheduleForSession, getAttendanceForUser, getUser } = useApp();
   const [busy, setBusy] = useState(false);
   const [scanPaused, setScanPaused] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(true);
   const [message, setMessage] = useState('Pilih sesi yang dibuka untuk memeriksa lokasi dan melakukan presensi.');
   const [isError, setIsError] = useState(false);
   const [checkedInSessionId, setCheckedInSessionId] = useState<string | null>(null);
@@ -248,8 +249,18 @@ export default function PresensiScreen() {
             </ThemedView>
           ) : (
             <View style={styles.qrSection}>
-              <ThemedText type="smallBold">Atau pindai QR presensi (opsional)</ThemedText>
-              <View style={[styles.cameraFrame, { borderColor: theme.glassBorder }]}>
+              <View style={styles.scannerHeader}>
+                <ThemedText type="smallBold">Atau pindai QR presensi</ThemedText>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={scannerVisible ? 'Tutup pemindai QR' : 'Buka pemindai QR'}
+                  disabled={busy}
+                  onPress={() => setScannerVisible((visible) => !visible)}
+                  style={({ pressed }) => [styles.scannerToggle, { borderColor: theme.glassBorder, backgroundColor: theme.glassCard }, pressed && styles.pressed, busy && styles.disabled]}>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>{scannerVisible ? 'Tutup' : 'Buka'}</ThemedText>
+                </Pressable>
+              </View>
+              {scannerVisible ? <View style={[styles.cameraFrame, { borderColor: theme.glassBorder }]}>
                 <CameraView
                   style={styles.camera}
                   facing="back"
@@ -262,7 +273,7 @@ export default function PresensiScreen() {
                     <ThemedText type="smallBold" style={{ color: '#FFFFFF' }}>Memeriksa lokasi & QR…</ThemedText>
                   </View>
                 ) : null}
-              </View>
+              </View> : null}
             </View>
           )}
 
@@ -288,8 +299,10 @@ export default function PresensiScreen() {
               const record = session ? myAttendance.find((item) => item.sessionId === session.id) : undefined;
               const attendanceLabel = record?.status === 'present'
                 ? 'Hadir'
+                : record?.status === 'absent'
+                  ? 'Alpha'
                 : record?.status === 'excused'
-                  ? 'Izin Disetujui'
+                  ? record.manualReason === 'sakit' ? 'Sakit' : 'Izin Disetujui'
                   : sessionStatus === 'closed' || schedule.date.slice(0, 10) < todayDateKey
                     ? 'Alpha'
                     : sessionStatus === 'open'
@@ -356,8 +369,12 @@ export default function PresensiScreen() {
               const sessionStatus = session?.status ?? 'scheduled';
               const statusMessage = record?.status === 'present'
                 ? 'Presensimu sudah tercatat sebagai hadir.'
+                : record?.status === 'absent'
+                  ? 'Asisten mencatat presensimu sebagai alpha.'
                 : record?.status === 'excused'
-                  ? 'Izinmu disetujui asisten. Presensi manual tidak diperlukan.'
+                  ? record.manualReason === 'sakit'
+                    ? 'Asisten mencatat status sakit untuk sesi ini.'
+                    : 'Izinmu disetujui atau dicatat asisten untuk sesi ini.'
                   : sessionStatus === 'open'
                     ? 'Sesi sedang dibuka. Pindai QR untuk melakukan presensi.'
                     : sessionStatus === 'closed'
@@ -378,8 +395,8 @@ export default function PresensiScreen() {
                     <DetailRow label="Jam Praktikum" value={`${selectedSchedule.startTime}–${selectedSchedule.endTime} WIB`} />
                     <DetailRow label="Asisten Laboratorium" value={assistant?.name ?? '-'} />
                   </View>
-                  <View style={[styles.statusNotice, { backgroundColor: record?.status === 'excused' ? theme.successSoft : 'rgba(255,255,255,0.78)' }]}>
-                    <ThemedText type="smallBold">{record?.status === 'present' ? 'Hadir' : record?.status === 'excused' ? 'Izin Disetujui' : sessionStatus === 'open' ? 'Sesi Dibuka' : sessionStatus === 'closed' ? 'Sesi Ditutup' : 'Menunggu Sesi Dibuka'}</ThemedText>
+                  <View style={[styles.statusNotice, { backgroundColor: record?.status === 'present' ? theme.successSoft : record?.status === 'absent' ? theme.dangerSoft : record?.status === 'excused' ? theme.warningSoft : 'rgba(255,255,255,0.78)' }]}>
+                    <ThemedText type="smallBold">{record?.status === 'present' ? 'Hadir' : record?.status === 'absent' ? 'Alpha' : record?.status === 'excused' ? record.manualReason === 'sakit' ? 'Sakit' : 'Izin' : sessionStatus === 'open' ? 'Sesi Dibuka' : sessionStatus === 'closed' ? 'Sesi Ditutup' : 'Menunggu Sesi Dibuka'}</ThemedText>
                     <ThemedText type="small">{statusMessage}</ThemedText>
                   </View>
                   <Pressable onPress={() => setSelectedSchedule(null)} style={[styles.closeButton, { backgroundColor: theme.primaryText }]}>
@@ -406,6 +423,9 @@ const styles = StyleSheet.create({
   sessionCopy: { flex: 1, gap: Spacing.half },
   heading: { gap: Spacing.one },
   qrSection: { gap: Spacing.two },
+  scannerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  scannerToggle: { minHeight: 36, justifyContent: 'center', paddingHorizontal: Spacing.three, borderRadius: 999, borderWidth: 1 },
+  disabled: { opacity: 0.55 },
   notice: { padding: Spacing.three, borderRadius: 22, gap: Spacing.two },
   cameraFrame: { height: 360, borderWidth: 1, borderRadius: 28, overflow: 'hidden', backgroundColor: '#171914' },
   camera: { flex: 1 },

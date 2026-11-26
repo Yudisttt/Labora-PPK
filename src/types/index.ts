@@ -43,10 +43,13 @@ export type AttendanceRecord = {
   id: string;
   sessionId: string;
   userId: string;
-  status: 'present' | 'excused';
+  status: 'present' | 'absent' | 'excused';
   checkedInAt: string | null;
   excusedAt: string | null;
   permissionRequestId: string | null;
+  manualReason?: 'izin' | 'sakit' | null;
+  manualBy?: string | null;
+  manualAt?: string | null;
 };
 
 export type PermissionRequestStatus = 'pending' | 'approved' | 'rejected';

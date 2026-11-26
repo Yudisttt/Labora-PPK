@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { BlurView } from 'expo-blur';
-import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,16 +11,35 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/state/app-context';
-import { getOrCreateSessionQrCode } from '@/services/sessions';
+import { listenParticipants } from '@/services/practicum-data';
+import { getOrCreateSessionQrCode, markAttendanceManually } from '@/services/sessions';
+import type { ClassParticipant } from '@/services/practicum-data';
 import { formatDate } from '@/utils/format';
+
+type ManualStatus = 'present' | 'absent' | 'excused';
+const MANUAL_OPTIONS: { label: string; status: ManualStatus; reason?: 'izin' | 'sakit' }[] = [
+  { label: 'Hadir', status: 'present' },
+  { label: 'Alpha', status: 'absent' },
+  { label: 'Izin', status: 'excused', reason: 'izin' },
+  { label: 'Sakit', status: 'excused', reason: 'sakit' },
+];
 
 export default function AsistenPresensiScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const { sessions, getScheduleForSession } = useApp();
+  const { currentUser, users, sessions, attendance, getScheduleForSession } = useApp();
   const [qrCodes, setQrCodes] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [participants, setParticipants] = useState<ClassParticipant[]>([]);
+  const [manualBusyId, setManualBusyId] = useState<string | null>(null);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualTarget, setManualTarget] = useState<{ sessionId: string; participantId: string; participantName: string } | null>(null);
   const openSessions = useMemo(() => sessions.filter((session) => session.status === 'open'), [sessions]);
+
+  useEffect(() => listenParticipants(
+    setParticipants,
+    () => setManualError('Daftar peserta gagal dimuat. Muat ulang halaman lalu coba lagi.'),
+  ), []);
 
   useEffect(() => {
     let active = true;
@@ -93,6 +112,61 @@ export default function AsistenPresensiScreen() {
               </BlurView>
             );
           })}
+          {openSessions.map((session) => {
+            const schedule = getScheduleForSession(session.id);
+            if (!schedule?.classId) return null;
+            const sessionParticipants = participants
+              .filter((participant) => participant.classId === schedule.classId)
+              .map((participant) => users.find((user) => user.id === participant.userId))
+              .filter((user): user is NonNullable<typeof user> => user?.role === 'praktikan')
+              .sort((a, b) => a.name.localeCompare(b.name));
+
+            return (
+              <BlurView key={`manual-${session.id}`} intensity={42} tint="light" style={[styles.card, styles.glassCard, { borderColor: theme.glassBorder }]}>
+                <View style={styles.manualHeading}>
+                  <View style={styles.titleBlock}>
+                    <ThemedText type="subtitle">Presensi Manual</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">{schedule.praktikum} · {schedule.kelas}</ThemedText>
+                  </View>
+                  <SessionStatusBadge status={session.status} />
+                </View>
+                {manualError ? <ThemedText type="small" style={{ color: theme.danger }}>{manualError}</ThemedText> : null}
+                {sessionParticipants.length === 0 ? (
+                  <ThemedText type="small" themeColor="textSecondary">Belum ada praktikan terdaftar pada kelas ini.</ThemedText>
+                ) : sessionParticipants.map((participant) => {
+                  const record = attendance.find((item) => item.sessionId === session.id && item.userId === participant.id);
+                  const busy = manualBusyId === `${session.id}_${participant.id}`;
+                  const statusLabel = record?.status === 'present'
+                    ? 'Hadir'
+                    : record?.status === 'absent'
+                      ? 'Alpha'
+                      : record?.status === 'excused'
+                        ? record.manualReason === 'sakit' ? 'Sakit' : 'Izin'
+                        : null;
+                  return (
+                    <View key={participant.id} style={[styles.participantRow, { borderTopColor: theme.glassBorder }]}>
+                      <View style={styles.titleBlock}>
+                        <ThemedText type="smallBold">{participant.name}</ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">{participant.identityNumber}</ThemedText>
+                      </View>
+                      {statusLabel ? (
+                        <ThemedText type="smallBold" style={{ color: record?.status === 'present' ? theme.success : record?.status === 'absent' ? theme.danger : theme.warning }}>{statusLabel}</ThemedText>
+                      ) : (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Pilih status presensi ${participant.name}`}
+                          disabled={manualBusyId !== null || !currentUser}
+                          onPress={() => { setManualError(null); setManualTarget({ sessionId: session.id, participantId: participant.id, participantName: participant.name }); }}
+                          style={({ pressed }) => [styles.manualButton, { backgroundColor: theme.primary }, pressed && styles.pressed, manualBusyId !== null && styles.disabled]}>
+                          <ThemedText type="smallBold" style={{ color: theme.primaryText }}>{busy ? 'Menyimpan…' : 'Pilih status'}</ThemedText>
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
+              </BlurView>
+            );
+          })}
           <Pressable
             accessibilityRole="button"
             onPress={() => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal')}
@@ -101,6 +175,40 @@ export default function AsistenPresensiScreen() {
             <ThemedText type="smallBold" style={{ color: theme.primary }}>← Kembali</ThemedText>
           </Pressable>
         </ScrollView>
+        <Modal visible={manualTarget !== null} transparent animationType="fade" onRequestClose={() => { if (manualBusyId === null) setManualTarget(null); }}>
+          <View style={styles.modalBackdrop}>
+            <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Tutup pilihan status" onPress={() => { if (manualBusyId === null) setManualTarget(null); }} />
+            <View style={[styles.statusPopup, { backgroundColor: theme.background, borderColor: theme.glassBorder }]}>
+              <ThemedText type="subtitle">Status Presensi</ThemedText>
+              {manualTarget ? <ThemedText type="small" themeColor="textSecondary">{manualTarget.participantName}</ThemedText> : null}
+              {manualError ? <ThemedText type="small" style={{ color: theme.danger }}>{manualError}</ThemedText> : null}
+              {MANUAL_OPTIONS.map((option) => (
+                <Pressable key={option.label} accessibilityRole="button" disabled={manualBusyId !== null || !currentUser || !manualTarget}
+                  onPress={() => {
+                    if (!currentUser || !manualTarget) return;
+                    const target = manualTarget;
+                    setManualBusyId(`${target.sessionId}_${target.participantId}`);
+                    setManualError(null);
+                    void markAttendanceManually(target.sessionId, target.participantId, currentUser.id, option.status, option.reason)
+                      .then(() => setManualTarget(null))
+                      .catch((caught: unknown) => {
+                        const code = caught instanceof Error && 'code' in caught ? String(caught.code) : '';
+                        setManualError(code === 'permission-denied'
+                          ? 'Firebase menolak perubahan ini. Pastikan firestore.rules terbaru sudah dipublikasikan.'
+                          : caught instanceof Error ? caught.message : 'Presensi manual gagal disimpan.');
+                      })
+                      .finally(() => setManualBusyId(null));
+                  }}
+                  style={({ pressed }) => [styles.statusOption, { borderColor: theme.glassBorder, backgroundColor: theme.glassCard }, pressed && styles.pressed, manualBusyId !== null && styles.disabled]}>
+                  <ThemedText type="smallBold">{manualBusyId ? 'Menyimpan…' : option.label}</ThemedText>
+                </Pressable>
+              ))}
+              <Pressable accessibilityRole="button" disabled={manualBusyId !== null} onPress={() => setManualTarget(null)} style={styles.cancelOption}>
+                <ThemedText type="smallBold" themeColor="textSecondary">Batal</ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     </ThemedView>
   );
@@ -119,4 +227,12 @@ const styles = StyleSheet.create({
   backButton: { alignSelf: 'center', minWidth: 136, alignItems: 'center', paddingHorizontal: Spacing.four, paddingVertical: Spacing.two, borderRadius: 999, borderWidth: 1 },
   pressed: { opacity: 0.75 },
   helper: { textAlign: 'center' },
+  manualHeading: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two },
+  participantRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two, borderTopWidth: 1, paddingTop: Spacing.two },
+  manualButton: { minHeight: 38, justifyContent: 'center', paddingHorizontal: Spacing.two, borderRadius: 14 },
+  disabled: { opacity: 0.6 },
+  modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: Spacing.three, backgroundColor: 'rgba(20,24,15,0.42)' },
+  statusPopup: { width: '100%', maxWidth: 360, padding: Spacing.three, gap: Spacing.two, borderRadius: 24, borderWidth: 1 },
+  statusOption: { minHeight: 48, justifyContent: 'center', paddingHorizontal: Spacing.three, borderRadius: 14, borderWidth: 1 },
+  cancelOption: { minHeight: 40, alignItems: 'center', justifyContent: 'center' },
 });
