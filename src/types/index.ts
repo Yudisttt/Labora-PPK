@@ -104,6 +104,17 @@ export type LaboratoryLocation = Coordinates & {
   radius: number;
 };
 
+export type Laboratory = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius: number;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 
 
 export type CheckInResult =

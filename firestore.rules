@@ -130,6 +130,19 @@ service cloud.firestore {
       allow delete: if ownsSchedule(scheduleId);
     }
 
+    match /laboratories/{laboratoryId} {
+      allow read: if isKnownUser();
+      allow write: if isAssistant()
+        && request.resource.data.keys().hasAll([
+          'name', 'latitude', 'longitude', 'radius'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.latitude is number
+        && request.resource.data.longitude is number
+        && request.resource.data.radius is number
+        && request.resource.data.radius > 0;
+    }
+
     match /participants/{participantId} {
       allow read: if isAssistant()
         || (isPraktikan() && resource.data.userId == request.auth.uid);
