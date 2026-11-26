@@ -14,7 +14,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/state/app-context';
-import { getLaboratoryLocation, getScheduleLaboratoryId } from '@/services/sessions';
+import { getLaboratoryForRoom } from '@/services/sessions';
 import type { CheckInFailureReason, Schedule } from '@/types';
 import { formatDate, formatTime } from '@/utils/format';
 import { calculateDistanceMeters } from '@/utils/geo';
@@ -138,8 +138,7 @@ export default function PresensiScreen() {
         longitude: position.coords.longitude,
         accuracy,
       };
-      const laboratoryId = getScheduleLaboratoryId(schedule);
-      const laboratory = laboratoryId ? await getLaboratoryLocation(laboratoryId) : null;
+      const laboratory = await getLaboratoryForRoom(schedule.ruang);
       if (!laboratory) {
         setMessage(FAILURE_MESSAGES['laboratory-unconfigured']);
         setIsError(true);

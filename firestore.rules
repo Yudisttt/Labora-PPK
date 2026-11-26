@@ -106,6 +106,21 @@ service cloud.firestore {
         && request.resource.data.program is string;
       allow read: if signedIn() && (request.auth.uid == uid || isAssistant());
       allow update, delete: if false;
+
+      match /pushTokens/{tokenId} {
+        allow read, delete: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['token', 'platform', 'provider', 'updatedAt'])
+          && request.resource.data.token is string
+          && request.resource.data.platform in ['ios', 'android']
+          && request.resource.data.provider == 'fcm';
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
     }
 
     match /classes/{classId} {
@@ -130,9 +145,11 @@ service cloud.firestore {
       allow delete: if ownsSchedule(scheduleId);
     }
 
+    // Koordinat dan radius presensi laboratorium. Dibaca semua pengguna yang
+    // login, hanya asisten yang boleh mengubah.
     match /laboratories/{laboratoryId} {
       allow read: if isKnownUser();
-      allow write: if isAssistant()
+      allow create, update: if isAssistant()
         && request.resource.data.keys().hasAll([
           'name', 'latitude', 'longitude', 'radius'
         ])
@@ -141,6 +158,7 @@ service cloud.firestore {
         && request.resource.data.longitude is number
         && request.resource.data.radius is number
         && request.resource.data.radius > 0;
+      allow delete: if isAssistant();
     }
 
     match /participants/{participantId} {
@@ -185,6 +203,24 @@ service cloud.firestore {
             && request.resource.data.closedAt == request.time)
         );
       allow delete: if false;
+
+      // Kode QR presensi per sesi; dibuat asisten pemilik jadwal.
+      match /attendanceCodes/{codeId} {
+        allow read: if isKnownUser();
+        allow create: if isAssistant()
+          && request.resource.data.keys().hasOnly([
+            'sessionId', 'openedAt', 'createdAt'
+          ])
+          && request.resource.data.keys().hasAll([
+            'sessionId', 'openedAt', 'createdAt'
+          ])
+          && request.resource.data.sessionId == sessionId
+          && request.resource.data.openedAt is timestamp
+          && ownsScheduleForSession(
+            get(/databases/$(database)/documents/sessions/$(sessionId)).data
+          );
+        allow update, delete: if false;
+      }
     }
 
     match /permissionRequests/{requestId} {
@@ -228,13 +264,30 @@ service cloud.firestore {
           && attendanceId.matches('.*_' + request.auth.uid + '$'));
       allow list: if isAssistant()
         || (isPraktikan() && resource.data.userId == request.auth.uid);
+      // Presensi praktikan menyertakan koordinat dan akurasi perangkat.
       allow create: if (isPraktikan()
-        && request.resource.data.keys().hasOnly(['sessionId', 'userId', 'checkedInAt', 'status'])
+        && request.resource.data.keys().hasOnly([
+          'sessionId', 'userId', 'checkedInAt', 'status',
+          'latitude', 'longitude', 'accuracy', 'attendanceCode'
+        ])
         && request.resource.data.keys().hasAll(['sessionId', 'userId', 'checkedInAt'])
         && request.resource.data.userId == request.auth.uid
         && attendanceId == request.resource.data.sessionId + '_' + request.auth.uid
         && request.resource.data.checkedInAt == request.time
         && (!('status' in request.resource.data) || request.resource.data.status == 'present')
+        && (!('latitude' in request.resource.data)
+          || (request.resource.data.latitude is number
+            && request.resource.data.latitude >= -90
+            && request.resource.data.latitude <= 90))
+        && (!('longitude' in request.resource.data)
+          || (request.resource.data.longitude is number
+            && request.resource.data.longitude >= -180
+            && request.resource.data.longitude <= 180))
+        && (!('accuracy' in request.resource.data)
+          || (request.resource.data.accuracy is number
+            && request.resource.data.accuracy >= 0))
+        && (!('attendanceCode' in request.resource.data)
+          || request.resource.data.attendanceCode is string)
         && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.status == 'open')
         || (isAssistant()
           && request.resource.data.keys().hasOnly([

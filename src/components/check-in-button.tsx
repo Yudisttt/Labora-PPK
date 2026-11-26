@@ -6,7 +6,7 @@ import { ActionButton } from '@/components/action-button';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { checkInWithLocation, getLaboratoryLocation } from '@/services/sessions';
+import { checkInWithLocation, getLaboratoryForRoom } from '@/services/sessions';
 import type { CheckInFailureReason, Session } from '@/types';
 import { formatTime } from '@/utils/format';
 import { calculateDistanceMeters } from '@/utils/geo';
@@ -31,7 +31,7 @@ type CheckInButtonProps = {
   session: Session | undefined;
   userId: string;
   attendanceCode: string;
-  laboratoryId: string;
+  roomName: string;
   checkedInAt: string | null;
 };
 
@@ -39,7 +39,7 @@ export function CheckInButton({
   session,
   userId,
   attendanceCode,
-  laboratoryId,
+  roomName,
   checkedInAt,
 }: CheckInButtonProps) {
   const theme = useTheme();
@@ -73,7 +73,7 @@ export function CheckInButton({
         longitude: position.coords.longitude,
         accuracy,
       };
-      const laboratory = await getLaboratoryLocation(laboratoryId);
+      const laboratory = await getLaboratoryForRoom(roomName);
       if (!laboratory) {
         setError(FAILURE_MESSAGES['laboratory-unconfigured']);
         return;

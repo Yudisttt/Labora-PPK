@@ -19,10 +19,10 @@ const praktikanTabs: TabItem[] = [
     isCenter: true,
   },
   {
-    key: 'izin',
-    label: 'Izin',
-    iconName: 'document-text',
-    route: '/praktikan/izin',
+    key: 'peta',
+    label: 'Peta Lab',
+    iconName: 'map-outline',
+    route: '/praktikan/peta',
   },
 ];
 

@@ -17,12 +17,12 @@ import {
 } from 'firebase/firestore';
 
 import { getFirebaseDb } from '@/services/firebase';
+import { fetchLaboratories, resolveLaboratoryForRoom } from '@/services/laboratories';
 import { getPracticumWindowState } from '@/utils/practicum-window';
 
 import type {
   AttendanceRecord,
   CheckInLocation,
-  Coordinates,
   CheckInResult,
   LaboratoryLocation,
   Session,
@@ -37,49 +37,19 @@ type SessionDocument = {
   closedAt?: unknown;
 };
 
-export async function getLaboratoryLocation(
-  laboratoryId: string,
+export async function getLaboratoryForRoom(
+  roomName: string,
 ): Promise<LaboratoryLocation | null> {
-  const snapshot = await getDoc(doc(getFirebaseDb(), 'laboratories', laboratoryId));
-  if (!snapshot.exists()) return null;
-  const data = snapshot.data();
-  const latitude = data.latitude;
-  const longitude = data.longitude;
-  const radius = data.radius;
-  if (
-    typeof latitude !== 'number' || !Number.isFinite(latitude) ||
-    typeof longitude !== 'number' || !Number.isFinite(longitude) ||
-    typeof radius !== 'number' || !Number.isFinite(radius) || radius <= 0
-  ) return null;
+  const laboratories = await fetchLaboratories();
+  const laboratory = resolveLaboratoryForRoom(laboratories, roomName);
+  if (!laboratory) return null;
   return {
-    id: snapshot.id,
-    name: typeof data.name === 'string' ? data.name : laboratoryId,
-    latitude,
-    longitude,
-    radius,
+    id: laboratory.id,
+    name: laboratory.name,
+    latitude: laboratory.latitude,
+    longitude: laboratory.longitude,
+    radius: laboratory.radius,
   };
-}
-
-export function getScheduleLaboratoryId(schedule: {
-  laboratoryId?: string;
-  classId?: string;
-}): string | null {
-  return schedule.laboratoryId || schedule.classId || null;
-}
-
-export async function saveLaboratoryLocation(
-  laboratoryId: string,
-  name: string,
-  location: Coordinates,
-  radius: number,
-): Promise<void> {
-  await setDoc(doc(getFirebaseDb(), 'laboratories', laboratoryId), {
-    name,
-    latitude: location.latitude,
-    longitude: location.longitude,
-    radius,
-    updatedAt: serverTimestamp(),
-  });
 }
 
 type AttendanceDocument = {
@@ -343,6 +313,7 @@ export async function checkInWithLocation(
   const sessionRef = doc(db, 'sessions', sessionId);
   const attendanceRef = doc(db, 'attendance', `${sessionId}_${userId}`);
   const checkedInAt = new Date().toISOString();
+  const laboratories = await fetchLaboratories();
 
   const outcome = await runTransaction(
     db,
@@ -353,7 +324,7 @@ export async function checkInWithLocation(
         return { ok: false, reason: 'unknown-session' };
       }
 
-            if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
+      if (toSessionStatus(sessionSnapshot.data().status) !== 'open') {
         return { ok: false, reason: 'not-open' };
       }
 
@@ -369,28 +340,18 @@ export async function checkInWithLocation(
 
       const scheduleData = scheduleSnapshot.data();
 
-      const laboratoryId = typeof scheduleData.laboratoryId === 'string' && scheduleData.laboratoryId
-        ? scheduleData.laboratoryId
-        : typeof scheduleData.classId === 'string' && scheduleData.classId
-          ? scheduleData.classId
-          : null;
-      if (!laboratoryId) {
+      const laboratory = typeof scheduleData.ruang === 'string'
+        ? resolveLaboratoryForRoom(laboratories, scheduleData.ruang)
+        : null;
+
+      if (!laboratory) {
         return { ok: false, reason: 'laboratory-unconfigured' };
       }
 
-      const laboratorySnapshot = await transaction.get(doc(db, 'laboratories', laboratoryId));
-      if (!laboratorySnapshot.exists()) {
-        return { ok: false, reason: 'laboratory-unconfigured' };
-      }
-      const laboratoryData = laboratorySnapshot.data();
-      const laboratoryLatitude = laboratoryData.latitude;
-      const laboratoryLongitude = laboratoryData.longitude;
-      const laboratoryRadius = laboratoryData.radius;
-      if (
-        typeof laboratoryLatitude !== 'number' || !Number.isFinite(laboratoryLatitude) ||
-        typeof laboratoryLongitude !== 'number' || !Number.isFinite(laboratoryLongitude) ||
-        typeof laboratoryRadius !== 'number' || !Number.isFinite(laboratoryRadius) || laboratoryRadius <= 0
-      ) {
+      const laboratoryLatitude = laboratory.latitude;
+      const laboratoryLongitude = laboratory.longitude;
+      const laboratoryRadius = laboratory.radius;
+      if (laboratoryRadius <= 0) {
         return { ok: false, reason: 'laboratory-unconfigured' };
       }
 

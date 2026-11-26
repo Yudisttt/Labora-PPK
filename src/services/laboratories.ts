@@ -102,7 +102,23 @@ function parseLaboratory(id: string, data: Record<string, unknown>): Laboratory 
 }
 
 function normalizeLabName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+  return name
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\./g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+// Nama jadwal bisa ditulis "Laboratorium D", "Lab D", atau "Lab Komputer A".
+// Inti nama membuang awalan ruang agar keduanya bisa dibandingkan setara.
+function labCoreName(name: string): string {
+  let core = normalizeLabName(name);
+  const prefix = /^(laboratorium|ruang praktikum|ruang|lab)\s+/;
+  while (prefix.test(core)) {
+    core = core.replace(prefix, '');
+  }
+  return core;
 }
 
 function getDefaultLaboratories(): Laboratory[] {
@@ -112,28 +128,39 @@ function getDefaultLaboratories(): Laboratory[] {
   }));
 }
 
-const LAB_ROOM_ALIASES: Record<string, string[]> = {
-  'lab komputer a': ['lab a'],
-  'lab a': ['lab komputer a'],
-  'lab komputer b': ['lab b'],
-  'lab b': ['lab komputer b'],
-  'lab komputer c': ['lab c'],
-  'lab c': ['lab komputer c'],
-  'lab multimedia': ['lab d'],
-  'lab d': ['lab multimedia'],
+const LAB_CORE_ALIASES: Record<string, string[]> = {
+  a: ['komputer a'],
+  'komputer a': ['a'],
+  b: ['komputer b'],
+  'komputer b': ['b'],
+  c: ['komputer c'],
+  'komputer c': ['c'],
+  d: ['multimedia'],
+  multimedia: ['d'],
 };
 
 export function resolveLaboratoryForRoom(
   laboratories: Laboratory[],
   roomName: string,
 ): Laboratory | null {
-  const normalizedRoom = normalizeLabName(roomName);
-  const acceptedNames = new Set([
-    normalizedRoom,
-    ...(LAB_ROOM_ALIASES[normalizedRoom] ?? []),
+  const targetCore = labCoreName(roomName);
+  if (!targetCore) return null;
+
+  const acceptedCores = new Set([
+    targetCore,
+    ...(LAB_CORE_ALIASES[targetCore] ?? []),
   ]);
 
-  return laboratories.find((lab) => acceptedNames.has(normalizeLabName(lab.name))) ?? null;
+  return laboratories.find((lab) => acceptedCores.has(labCoreName(lab.name))) ?? null;
+}
+
+export async function fetchLaboratories(): Promise<Laboratory[]> {
+  const snapshot = await getDocs(collection(getFirebaseDb(), 'laboratories'));
+  const labs = snapshot.docs
+    .map((item) => parseLaboratory(item.id, item.data()))
+    .filter((item): item is Laboratory => item !== null);
+
+  return labs.length > 0 ? labs : getDefaultLaboratories();
 }
 
 export function subscribeLaboratories(
