@@ -59,6 +59,9 @@ type AttendanceDocument = {
   checkedInAt?: unknown;
   excusedAt?: unknown;
   permissionRequestId?: unknown;
+  manualReason?: unknown;
+  manualBy?: unknown;
+  manualAt?: unknown;
 };
 
 function toIsoString(value: unknown): string | null {
@@ -98,8 +101,11 @@ function toAttendance(
   const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
   const userId = typeof data.userId === 'string' ? data.userId : '';
   const checkedInAt = toIsoString(data.checkedInAt);
-  const status = data.status === 'excused' ? 'excused' : 'present';
+  const status = data.status === 'excused' || data.status === 'absent'
+    ? data.status
+    : 'present';
   const excusedAt = toIsoString(data.excusedAt);
+  const manualAt = toIsoString(data.manualAt);
 
   if (!sessionId || !userId || (status === 'present' && !checkedInAt)) {
     return null;
@@ -116,6 +122,9 @@ function toAttendance(
       typeof data.permissionRequestId === 'string'
         ? data.permissionRequestId
         : null,
+    manualReason: data.manualReason === 'izin' || data.manualReason === 'sakit' ? data.manualReason : null,
+    manualBy: typeof data.manualBy === 'string' ? data.manualBy : null,
+    manualAt,
   };
 }
 
@@ -246,6 +255,75 @@ export async function closeSession(sessionId: string): Promise<void> {
   await updateDoc(doc(getFirebaseDb(), 'sessions', sessionId), {
     status: 'closed',
     closedAt: serverTimestamp(),
+  });
+}
+
+export async function markAttendanceManually(
+  sessionId: string,
+  userId: string,
+  assistantId: string,
+  status: 'present' | 'absent' | 'excused',
+  manualReason?: 'izin' | 'sakit',
+): Promise<void> {
+  if (!sessionId || !userId || !assistantId) {
+    throw new Error('Informasi sesi atau praktikan belum tersedia.');
+  }
+  if ((status === 'excused') !== (manualReason === 'izin' || manualReason === 'sakit')) {
+    throw new Error('Pilih alasan izin atau sakit untuk status tersebut.');
+  }
+
+  const db = getFirebaseDb();
+  const sessionRef = doc(db, 'sessions', sessionId);
+  const attendanceRef = doc(db, 'attendance', `${sessionId}_${userId}`);
+
+  await runTransaction(db, async (transaction) => {
+    const sessionSnapshot = await transaction.get(sessionRef);
+    if (!sessionSnapshot.exists() || sessionSnapshot.data().status !== 'open') {
+      throw new Error('Presensi manual hanya tersedia saat sesi dibuka.');
+    }
+
+    const scheduleId = sessionSnapshot.data().scheduleId;
+    if (typeof scheduleId !== 'string' || !scheduleId) {
+      throw new Error('Jadwal untuk sesi ini tidak ditemukan.');
+    }
+
+    const scheduleRef = doc(db, 'schedules', scheduleId);
+    const scheduleSnapshot = await transaction.get(scheduleRef);
+    if (!scheduleSnapshot.exists() || scheduleSnapshot.data().assistantId !== assistantId) {
+      throw new Error('Kamu tidak memiliki akses ke sesi ini.');
+    }
+
+    const classId = scheduleSnapshot.data().classId;
+    if (typeof classId !== 'string' || !classId) {
+      throw new Error('Kelas untuk sesi ini tidak ditemukan.');
+    }
+
+    const participantRef = doc(db, 'participants', `${classId}_${userId}`);
+    const [participantSnapshot, attendanceSnapshot] = await Promise.all([
+      transaction.get(participantRef),
+      transaction.get(attendanceRef),
+    ]);
+    if (!participantSnapshot.exists()) {
+      throw new Error('Praktikan tidak terdaftar pada kelas sesi ini.');
+    }
+    if (attendanceSnapshot.exists()) {
+      throw new Error(
+        attendanceSnapshot.data().status === 'excused'
+          ? 'Praktikan sudah tercatat izin.'
+          : 'Presensi praktikan sudah tercatat.',
+      );
+    }
+
+    const attendanceData = {
+      sessionId,
+      userId,
+      status,
+      checkedInAt: status === 'present' ? serverTimestamp() : null,
+      manualBy: assistantId,
+      ...(status === 'absent' ? { manualAt: serverTimestamp() } : {}),
+      ...(status === 'excused' ? { excusedAt: serverTimestamp(), manualReason } : {}),
+    };
+    transaction.set(attendanceRef, attendanceData);
   });
 }
 
