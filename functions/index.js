@@ -1,12 +1,12 @@
 const { initializeApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
+const { getMessaging } = require('firebase-admin/messaging');
 const { onDocumentCreated, onDocumentUpdated } = require('firebase-functions/v2/firestore');
 
 initializeApp();
 
 const db = getFirestore();
-const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
-const EXPO_PUSH_BATCH_SIZE = 100;
+const FCM_BATCH_SIZE = 500;
 
 async function getPushTargets(userIds) {
   const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
@@ -18,8 +18,9 @@ async function getPushTargets(userIds) {
 
   return snapshots.flatMap((snapshot) =>
     snapshot.docs.flatMap((tokenDoc) => {
-      const token = tokenDoc.data().token;
-      return typeof token === 'string' && token.startsWith('ExponentPushToken[')
+      const tokenData = tokenDoc.data();
+      const token = tokenData.token;
+      return tokenData.provider === 'fcm' && typeof token === 'string'
         ? [{ token, ref: tokenDoc.ref }]
         : [];
     }),
@@ -45,36 +46,26 @@ async function saveInAppNotifications(userIds, notification) {
 async function sendPushNotifications(userIds, notification) {
   await saveInAppNotifications(userIds, notification);
   const targets = await getPushTargets(userIds);
-  for (let offset = 0; offset < targets.length; offset += EXPO_PUSH_BATCH_SIZE) {
-    const batch = targets.slice(offset, offset + EXPO_PUSH_BATCH_SIZE);
-    const response = await fetch(EXPO_PUSH_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
+  for (let offset = 0; offset < targets.length; offset += FCM_BATCH_SIZE) {
+    const batch = targets.slice(offset, offset + FCM_BATCH_SIZE);
+    const result = await getMessaging().sendEachForMulticast({
+      tokens: batch.map(({ token }) => token),
+      notification: {
+        title: notification.title,
+        body: notification.body,
       },
-      body: JSON.stringify(
-        batch.map(({ token }) => ({
-          to: token,
-          sound: 'default',
-          channelId: 'default',
-          title: notification.title,
-          body: notification.body,
-          data: notification.data,
-        })),
-      ),
+      data: notification.data,
+      android: {
+        priority: 'high',
+        notification: { channelId: 'default' },
+      },
+      apns: { payload: { aps: { sound: 'default' } } },
     });
-
-    if (!response.ok) {
-      throw new Error(`Layanan push menolak pengiriman (${response.status}).`);
-    }
-
-    const result = await response.json();
-    const tickets = Array.isArray(result.data) ? result.data : [];
     await Promise.all(
-      tickets.map((ticket, index) => {
-        if (ticket.status === 'error' && ticket.details?.error === 'DeviceNotRegistered') {
+      result.responses.map((response, index) => {
+        const code = response.error?.code;
+        if (code === 'messaging/registration-token-not-registered'
+          || code === 'messaging/invalid-registration-token') {
           return batch[index].ref.delete();
         }
         return Promise.resolve();

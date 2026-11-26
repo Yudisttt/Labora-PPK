@@ -1,5 +1,4 @@
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 import {
   collection,
   deleteDoc,
@@ -9,38 +8,43 @@ import {
   type DocumentReference,
   type DocumentData,
 } from 'firebase/firestore';
-import * as Notifications from 'expo-notifications';
-import { AndroidImportance } from 'expo-notifications';
+import { getMessaging, getToken, onTokenRefresh } from '@react-native-firebase/messaging';
+import notifee, { AndroidImportance, AuthorizationStatus } from 'react-native-notify-kit';
 
 import { getFirebaseDb } from '@/services/firebase';
 
 export async function registerPushToken(userId: string) {
   if (Platform.OS === 'web') return null;
 
-  let permission = await Notifications.getPermissionsAsync();
-  if (!permission.granted) {
-    permission = await Notifications.requestPermissionsAsync();
-  }
-  if (!permission.granted) {
+  const permission = await notifee.requestPermission();
+  if (permission.authorizationStatus < AuthorizationStatus.AUTHORIZED) {
     throw new Error('Izin notifikasi belum diberikan. Aktifkan melalui pengaturan perangkat.');
   }
 
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
+    await notifee.createChannel({
+      id: 'default',
       name: 'Notifikasi Labora',
       importance: AndroidImportance.DEFAULT,
     });
   }
 
-  const projectId =
-    Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
-  if (!projectId) {
-    throw new Error('Project ID Expo belum tersedia untuk pendaftaran notifikasi.');
-  }
-
-  const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  const messagingInstance = getMessaging();
+  const token = await getToken(messagingInstance);
   const tokenRef = await savePushToken(userId, token, Platform.OS);
   registeredPushTokenRef = tokenRef;
+
+  const unsubscribe = onTokenRefresh(messagingInstance, (refreshedToken) => {
+    void savePushToken(userId, refreshedToken, Platform.OS)
+      .then((refreshedRef) => {
+        registeredPushTokenRef = refreshedRef;
+      })
+      .catch((error: unknown) => {
+        console.warn('Pembaruan token FCM gagal:', error);
+      });
+  });
+  tokenRefreshUnsubscribe?.();
+  tokenRefreshUnsubscribe = unsubscribe;
 
   return { token, tokenRef };
 }
@@ -58,18 +62,22 @@ export async function savePushToken(
   await setDoc(tokenRef, {
     token,
     platform,
+    provider: 'fcm',
     updatedAt: serverTimestamp(),
   });
   return tokenRef;
 }
 
 let registeredPushTokenRef: DocumentReference<DocumentData> | null = null;
+let tokenRefreshUnsubscribe: (() => void) | null = null;
 
 export async function unregisterRegisteredPushToken() {
   const tokenRef = registeredPushTokenRef;
   if (!tokenRef) return;
 
   await deleteDoc(tokenRef);
+  tokenRefreshUnsubscribe?.();
+  tokenRefreshUnsubscribe = null;
   if (registeredPushTokenRef === tokenRef) {
     registeredPushTokenRef = null;
   }

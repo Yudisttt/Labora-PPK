@@ -40,13 +40,15 @@
           "imageWidth": 76
         }
       ],
-      "expo-notifications",
       [
         "expo-location",
         {
           "locationWhenInUsePermission": "Labora menggunakan lokasi untuk memastikan presensi dilakukan di laboratorium."
         }
-      ]
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
+      "react-native-notify-kit"
     ],
     "experiments": {
       "typedRoutes": true,
