@@ -12,6 +12,7 @@ import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { AuthProvider } from "@/state/auth-context";
 import { AppProvider } from "@/state/app-context";
+import { PushNotificationManager } from "@/components/push-notification-manager";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,6 +33,7 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <AuthProvider>
         <AppProvider>
+          <PushNotificationManager />
           <AnimatedSplashOverlay />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />

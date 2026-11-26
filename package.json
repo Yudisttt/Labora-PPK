@@ -8,7 +8,11 @@
     "@expo/ui": "~58.0.22",
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "2.2.0",
+
+    "@react-native-firebase/app": "^27.2.0",
+    "@react-native-firebase/messaging": "^27.2.0",
     "expo": "~58.0.26",
+
     "expo-blur": "~58.0.6",
     "expo-camera": "~58.0.14",
     "expo-constants": "~58.0.13",
@@ -31,6 +35,7 @@
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
     "react-native-gesture-handler": "~3.3.0",
+    "react-native-notify-kit": "^10.10.1",
     "react-native-qrcode-svg": "^6.3.54",
     "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.10.1",

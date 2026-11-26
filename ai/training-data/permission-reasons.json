@@ -46,6 +46,8 @@
   { "text": "ngantuk kak", "label": "negatif" },
   { "text": "aku izin karena pengen tidur aja", "label": "negatif" },
   { "text": "ketiduran kak", "label": "negatif" },
-  { "text": "maaf nggak bisa datang karena pokoknya begitu", "label": "negatif" },
-  { "text": "aku izin dulu, nanti juga tahu sendiri alasannya", "label": "negatif" }
+  { "text": "maaf nggak bisa datang karena malas", "label": "negatif" },
+  { "text": "aku izin dulu, nanti juga tahu sendiri alasannya", "label": "negatif" },
+  { "text": "aku lagi gamau", "label": "negatif" },
+  { "text": "sedang malas", "label": "negatif" }
 ]

@@ -220,7 +220,8 @@ export default function PraktikanJadwalScreen() {
           <DashboardCapsule
             title="Jadwal & Presensi"
             subtitle="Pantau kehadiran dan sesi aktifmu hari ini"
-            actions={[{ label: 'Ajukan Izin', onPress: () => router.push('/praktikan/izin') }]}
+            actions={[{ label: 'Ajukan Izin', onPress: () => router.push('/praktikan/izin') },
+                      { label: 'Pemberitahuan', onPress: () => router.push('/praktikan/notifikasi') },]}
             stats={[
               { label: 'Semua Jadwal', value: schedules.length, active: currentTab === 'jadwal' && currentFilter !== 'alpha', onPress: () => { router.setParams({ view: undefined }); setDashboardFilter(null); setActiveTab('jadwal'); } },
               { label: 'Sesi Dibuka', value: openSessionCount, active: false, onPress: () => router.navigate('/praktikan/presensi') },

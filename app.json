@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "my-app",
+    "name": "Labora",
     "slug": "my-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,6 +11,7 @@
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -52,7 +53,16 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Labora menggunakan lokasi untuk memastikan presensi dilakukan di laboratorium."
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
+      "react-native-notify-kit"
     ],
     "experiments": {
       "typedRoutes": true,

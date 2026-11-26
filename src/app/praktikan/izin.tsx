@@ -80,6 +80,8 @@ export default function PraktikanIzinScreen() {
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [submitCanRetry, setSubmitCanRetry] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [aiPrediction, setAiPrediction] = useState<PermissionAiPrediction | null>(null);
 
   const availableSessions = useMemo(() => {
@@ -121,7 +123,7 @@ export default function PraktikanIzinScreen() {
         });
       },
     );
-  }, [currentUser]);
+  }, [currentUser, retryKey]);
 
   const requestStateIsCurrent = requestState?.userId === currentUser?.id;
   const requests = requestStateIsCurrent ? requestState?.requests ?? [] : [];
@@ -150,6 +152,7 @@ export default function PraktikanIzinScreen() {
 
     setSubmitting(true);
     setSubmitMessage(null);
+    setSubmitCanRetry(false);
     const prediction = classifyPermissionReason(reason);
     setAiPrediction(prediction);
 
@@ -167,6 +170,14 @@ export default function PraktikanIzinScreen() {
     } catch (error) {
       setSubmitMessage(
         getErrorMessage(error),
+      );
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String(error.code)
+        : '';
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      setSubmitCanRetry(
+        code === 'unavailable' || code === 'network-request-failed' ||
+        message.includes('network') || message.includes('unavailable'),
       );
     } finally {
       setSubmitting(false);
@@ -359,6 +370,11 @@ export default function PraktikanIzinScreen() {
                 ]}
               >
                 <ThemedText type="small">{submitMessage}</ThemedText>
+                {submitCanRetry ? (
+                  <Pressable accessibilityRole="button" onPress={() => void handleSubmit()}>
+                    <ThemedText type="smallBold" style={{ color: theme.primary }}>Coba kirim lagi</ThemedText>
+                  </Pressable>
+                ) : null}
               </View>
             ) : null}
 
@@ -390,6 +406,9 @@ export default function PraktikanIzinScreen() {
             ) : requestsError ? (
               <View style={[styles.messageBox, { backgroundColor: theme.dangerSoft }]}>
                 <ThemedText type="small">{requestsError}</ThemedText>
+                <Pressable accessibilityRole="button" onPress={() => setRetryKey((key) => key + 1)}>
+                  <ThemedText type="smallBold" style={{ color: theme.primary }}>Coba lagi</ThemedText>
+                </Pressable>
               </View>
             ) : requests.length === 0 ? (
               <View
