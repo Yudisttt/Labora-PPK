@@ -42,7 +42,8 @@ import {
   type PracticumSchedule,
 } from '@/services/practicum-data';
 import { useAuth } from '@/state/auth-context';
-import type { User } from '@/types';
+import { subscribeLaboratories } from '@/services/laboratories';
+import type { Laboratory, User } from '@/types';
 import { formatDate } from '@/utils/format';
 import {
   hasPracticumTimeConflict,
@@ -131,6 +132,7 @@ export default function ManagePracticumDataScreen() {
   const [className, setClassName] = useState('');
   const [courseName, setCourseName] = useState('');
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
+  const [laboratories, setLaboratories] = useState<Laboratory[]>([]);
 
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -246,7 +248,7 @@ export default function ManagePracticumDataScreen() {
       }
 
       loadedStreams.current.add(stream);
-      if (loadedStreams.current.size === 4) {
+      if (loadedStreams.current.size === 5) {
         setLoading(false);
       }
     }
@@ -262,6 +264,10 @@ export default function ManagePracticumDataScreen() {
 
     try {
       subscriptions.push(
+        subscribeLaboratories((value) => {
+          setLaboratories(value);
+          markLoaded('laboratories');
+        }, handleError),
         listenClasses((value) => {
           setClasses(
             value.filter((practicumClass) => practicumClass.assistantId === currentUser.id),
@@ -2197,14 +2203,14 @@ export default function ManagePracticumDataScreen() {
               style={styles.dropdownScroll}
               contentContainerStyle={styles.timeDropdownListContent}
               showsVerticalScrollIndicator>
-              {labGroups.map((lab) => {
+              {laboratories.map((lab) => {
                 const selected =
                   scheduleRoom.trim().toLowerCase() ===
                   lab.name.trim().toLowerCase();
 
                 return (
                   <Pressable
-                    key={`room-option-${lab.name}`}
+                    key={`room-option-${lab.id}`}
                     accessibilityRole="button"
                     accessibilityState={{ selected }}
                     onPress={() => {
@@ -2219,9 +2225,9 @@ export default function ManagePracticumDataScreen() {
                   </Pressable>
                 );
               })}
-              {labGroups.length === 0 ? (
+              {laboratories.length === 0 ? (
                 <ThemedText type="small" themeColor="textSecondary">
-                  Belum ada lab. Tambahkan kelas di tab Labs terlebih dahulu.
+                  Belum ada laboratorium. Atur lokasi lab di halaman Peta terlebih dahulu.
                 </ThemedText>
               ) : null}
             </ScrollView>
