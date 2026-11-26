@@ -13,6 +13,8 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { AuthProvider } from "@/state/auth-context";
 import { AppProvider } from "@/state/app-context";
 import { PushNotificationManager } from "@/components/push-notification-manager";
+import { NetworkRecoveryNotice } from "@/components/network-recovery-notice";
+import { View } from "react-native";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -35,11 +37,14 @@ export default function RootLayout() {
         <AppProvider>
           <PushNotificationManager />
           <AnimatedSplashOverlay />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen name="praktikan" />
-            <Stack.Screen name="asisten" />
-          </Stack>
+          <View style={{ flex: 1 }}>
+            <NetworkRecoveryNotice />
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="praktikan" />
+              <Stack.Screen name="asisten" />
+            </Stack>
+          </View>
         </AppProvider>
       </AuthProvider>
     </ThemeProvider>

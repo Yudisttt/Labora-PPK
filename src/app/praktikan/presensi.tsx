@@ -2,7 +2,6 @@ import { useRef, useState } from 'react';
 import { router } from 'expo-router';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { BlurView } from 'expo-blur';
-import * as Location from 'expo-location';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -14,6 +13,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useApp } from '@/state/app-context';
+import { getAttendanceLocation } from '@/services/attendance-location';
 import { getLaboratoryForRoom } from '@/services/sessions';
 import type { CheckInFailureReason, Schedule } from '@/types';
 import { formatDate, formatTime } from '@/utils/format';
@@ -56,6 +56,15 @@ const FAILURE_MESSAGES: Record<CheckInFailureReason, string> = {
 
 type LocationCheck = { distance: number; radius: number; accuracy: number; withinRadius: boolean };
 
+function isNetworkFailure(error: unknown) {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code).toLowerCase()
+    : '';
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  return ['unavailable', 'network-request-failed', 'deadline-exceeded', 'network', 'offline']
+    .some((value) => code.includes(value) || message.includes(value));
+}
+
 export default function PresensiScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -69,6 +78,8 @@ export default function PresensiScreen() {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [locationChecks, setLocationChecks] = useState<Record<string, LocationCheck>>({});
   const [checkingSessionId, setCheckingSessionId] = useState<string | null>(null);
+  const [retrySessionId, setRetrySessionId] = useState<string | null>(null);
+  const [locationSettingsNeeded, setLocationSettingsNeeded] = useState(false);
   const scanLock = useRef(false);
   const openSessions = sessions.filter((session) => session.status === 'open');
   const openSchedules = schedules.filter((schedule) =>
@@ -85,6 +96,9 @@ export default function PresensiScreen() {
   }).length;
 
   async function performCheckIn(sessionId: string, attendanceCode?: string) {
+    setRetrySessionId(null);
+    setLocationSettingsNeeded(false);
+    setIsError(false);
     if (!currentUser) {
       setMessage('Sesi login berakhir. Masuk kembali untuk presensi.');
       setIsError(true);
@@ -105,37 +119,33 @@ export default function PresensiScreen() {
         return;
       }
 
-      let permission: Location.LocationPermissionResponse;
-      try {
-        permission = await Location.requestForegroundPermissionsAsync();
-      } catch {
-        setMessage(FAILURE_MESSAGES['location-unavailable']);
+      const locationResult = await getAttendanceLocation();
+      if (!locationResult.ok) {
+        const locationMessages = {
+          'permission-denied': locationResult.canAskAgain
+            ? 'Izin lokasi belum diberikan. Izinkan akses lokasi untuk melakukan presensi.'
+            : 'Izin lokasi ditolak permanen. Buka Pengaturan aplikasi dan izinkan akses lokasi untuk presensi.',
+          'services-disabled': 'GPS/lokasi perangkat sedang nonaktif. Aktifkan layanan lokasi, lalu coba lagi.',
+          'coordinates-unavailable': 'Koordinat perangkat belum tersedia. Pastikan GPS aktif dan tunggu sebentar, lalu coba lagi.',
+        } as const;
+        setMessage(locationMessages[locationResult.reason]);
+        setLocationSettingsNeeded(
+          locationResult.reason === 'permission-denied' && locationResult.canAskAgain === false,
+        );
+        setRetrySessionId(sessionId);
         setIsError(true);
         return;
       }
-      if (!permission.granted) {
-        setMessage('Izin lokasi ditolak. Izinkan akses lokasi untuk melakukan presensi.');
-        setIsError(true);
-        return;
-      }
-
-      let position: Location.LocationObject;
-      try {
-        position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      } catch {
-        setMessage(FAILURE_MESSAGES['location-unavailable']);
-        setIsError(true);
-        return;
-      }
-      const accuracy = position.coords.accuracy;
+      const accuracy = locationResult.accuracy;
       if (accuracy === null || accuracy > 50) {
         setMessage(FAILURE_MESSAGES['location-inaccurate']);
+        setRetrySessionId(sessionId);
         setIsError(true);
         return;
       }
       const location = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
+        latitude: locationResult.latitude,
+        longitude: locationResult.longitude,
         accuracy,
       };
       const laboratory = await getLaboratoryForRoom(schedule.ruang);
@@ -166,8 +176,13 @@ export default function PresensiScreen() {
         setMessage(`Presensi ${schedule?.praktikum ?? 'praktikum'} berhasil tercatat${outcome.record.checkedInAt ? ` pukul ${formatTime(outcome.record.checkedInAt)}` : ''}.`);
         setIsError(false);
       }
-    } catch {
-      setMessage('Presensi gagal disimpan. Periksa koneksi lalu coba lagi.');
+    } catch (error) {
+      if (isNetworkFailure(error)) {
+        setMessage('Koneksi internet terganggu. Presensi belum tersimpan. Periksa koneksi, lalu tekan Coba lagi.');
+        setRetrySessionId(sessionId);
+      } else {
+        setMessage('Presensi gagal disimpan. Silakan coba kembali setelah memeriksa sesi dan akses akun.');
+      }
       setIsError(true);
     }
   }
@@ -201,6 +216,8 @@ export default function PresensiScreen() {
 
   function scanAgain() {
     scanLock.current = false;
+    setRetrySessionId(null);
+    setLocationSettingsNeeded(false);
     setCheckedInSessionId(null);
     setMessage('Pilih sesi yang dibuka untuk memeriksa lokasi dan melakukan presensi.');
     setIsError(false);
@@ -269,6 +286,17 @@ export default function PresensiScreen() {
           <ThemedView type="backgroundElement" style={styles.resultCard}>
             <ThemedText type="smallBold" style={{ color: isError ? theme.danger : theme.success }}>{checkedInSessionId ? 'Presensi tercatat' : 'Hasil pemeriksaan'}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">{message}</ThemedText>
+            {locationSettingsNeeded ? (
+              <ActionButton label="Buka Pengaturan Lokasi" variant="secondary" onPress={() => void Linking.openSettings()} />
+            ) : retrySessionId ? (
+              <ActionButton
+                label="Coba lagi"
+                variant="secondary"
+                disabled={checkingSessionId !== null}
+                loading={checkingSessionId === retrySessionId}
+                onPress={() => void handleSessionCheckIn(retrySessionId)}
+              />
+            ) : null}
             {scanPaused && !busy ? <ActionButton label="Pindai QR lagi" variant="secondary" onPress={scanAgain} /> : null}
           </ThemedView>
 

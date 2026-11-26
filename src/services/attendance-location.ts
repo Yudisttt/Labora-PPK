@@ -5,6 +5,7 @@ export type AttendanceLocationResult =
       ok: true;
       latitude: number;
       longitude: number;
+      accuracy: number | null;
     }
   | {
       ok: false;
@@ -29,13 +30,17 @@ export async function getAttendanceLocation(): Promise<AttendanceLocationResult>
 
     const position = await Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.High,
+      mayShowUserSettingsDialog: true,
     });
     const { latitude, longitude } = position.coords;
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    if (
+      !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+      !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+    ) {
       return { ok: false, reason: 'coordinates-unavailable' };
     }
 
-    return { ok: true, latitude, longitude };
+    return { ok: true, latitude, longitude, accuracy: position.coords.accuracy };
   } catch {
     return { ok: false, reason: 'coordinates-unavailable' };
   }

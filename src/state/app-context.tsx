@@ -40,6 +40,8 @@ type AppContextValue = {
   sessions: Session[];
   attendance: AttendanceRecord[];
   attendanceError: string | null;
+  dataSyncError: string | null;
+  retryDataSync: () => void;
   currentUser: User | null;
   openSession: (sessionId: string) => Promise<void>;
   closeSession: (sessionId: string) => Promise<void>;
@@ -66,6 +68,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     userId: string;
     message: string;
   } | null>(null);
+  const [dataSyncError, setDataSyncError] = useState<{
+    userId: string;
+    message: string;
+  } | null>(null);
+  const [subscriptionRetryKey, setSubscriptionRetryKey] = useState(0);
   const [dataOwner, setDataOwner] = useState<User | null>(null);
   const dataOwnerUserId = useRef<string | null>(null);
   const profileOwnerUserId = useRef<string | null>(null);
@@ -88,13 +95,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       attendanceRef.current = [];
     }
     let receivedInitialSchedules = false;
+    const setConnectionError = (error: Error) => {
+      if (!active) return;
+      const code = 'code' in error ? String(error.code) : '';
+      const text = error.message.toLowerCase();
+      const networkFailure = [
+        'unavailable', 'network-request-failed', 'deadline-exceeded', 'webchannel-closed', 'network', 'offline',
+      ].some((value) => code.includes(value) || text.includes(value));
+      if (networkFailure) {
+        setDataSyncError({
+          userId: user.id,
+          message: 'Koneksi internet terganggu. Sebagian data mungkin belum terbaru.',
+        });
+      }
+    };
+    const clearConnectionError = () => {
+      if (!active) return;
+      setDataSyncError((current) => current?.userId === user.id ? null : current);
+    };
     const handleError = (error: Error) => {
       if (active) {
+        setConnectionError(error);
         console.warn('Gagal memuat data praktikum dari Firebase', error);
       }
     };
     const handleAttendanceError = (error: Error) => {
       if (active) {
+        setConnectionError(error);
         const code = 'code' in error ? String(error.code) : '';
         setAttendanceError({ userId: user.id, message: code || error.message });
         console.warn('Gagal memuat data presensi dari Firebase', error);
@@ -116,6 +143,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       setSchedules(nextSchedules);
+      clearConnectionError();
       const nextAttendance = sameOwner ? attendanceRef.current : [];
       attendanceRef.current = nextAttendance;
       setAttendance(nextAttendance);
@@ -124,12 +152,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       subscriptions.push(
   subscribeToSessions((nextSessions) => {
-    if (active) setSessions(nextSessions);
+    if (active) {
+      setSessions(nextSessions);
+      clearConnectionError();
+    }
   }, handleError),
 
   user.role === 'asisten'
     ? subscribeToAllAttendance((nextAttendance) => {
         if (active) {
+          clearConnectionError();
           attendanceRef.current = nextAttendance;
           setAttendance(nextAttendance);
           setAttendanceError((current) =>
@@ -139,6 +171,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }, handleAttendanceError)
     : subscribeToAttendanceForUser(user.id, (nextAttendance) => {
         if (active) {
+          clearConnectionError();
           attendanceRef.current = nextAttendance;
           setAttendance(nextAttendance);
           setAttendanceError((current) =>
@@ -169,10 +202,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         subscriptions.push(
           listenPraktikanProfiles((profiles) => {
             praktikanProfiles = profiles;
+          clearConnectionError();
             updateProfiles();
           }, handleError),
           listenAssistantProfiles((profiles) => {
             assistantProfiles = profiles;
+          clearConnectionError();
             updateProfiles();
           }, handleError),
         );
@@ -189,7 +224,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       active = false;
       subscriptions.forEach((unsubscribe) => unsubscribe());
     };
-  }, [currentUser]);
+  }, [currentUser, subscriptionRetryKey]);
 
   const currentUserDataIsLoaded =
     currentUser !== null && dataOwner === currentUser;
@@ -225,6 +260,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const closeSession = useCallback(async (sessionId: string) => {
     await writeCloseSession(sessionId);
   }, []);
+  const retryDataSync = useCallback(() => {
+    setDataSyncError(null);
+    setSubscriptionRetryKey((key) => key + 1);
+  }, []);
 
   const checkIn = useCallback(
     async (sessionId: string, userId: string, location: CheckInLocation, attendanceCode?: string): Promise<CheckInResult> => {
@@ -256,6 +295,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attendanceError && attendanceError.userId === currentUser?.id
           ? attendanceError.message
           : null,
+      dataSyncError:
+        dataSyncError && dataSyncError.userId === currentUser?.id
+          ? dataSyncError.message
+          : null,
+      retryDataSync,
       currentUser,
       openSession,
       closeSession,
@@ -313,8 +357,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     checkIn,
     closeSession,
     currentUser,
+    dataSyncError,
     attendanceError,
     openSession,
+    retryDataSync,
     visibleAttendance,
     visibleSchedules,
     visibleSessions,
