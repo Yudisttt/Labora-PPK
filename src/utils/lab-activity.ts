@@ -34,9 +34,12 @@ function timeToMinutes(timeStr: string): number {
 function getMatchingRoomNames(labName: string): Set<string> {
   const normalized = labName.trim().replace(/\s+/g, ' ').toLowerCase();
   const aliases: Record<string, string[]> = {
+    'lab komputer a': ['lab a'],
+    'lab a': ['lab komputer a'],
     'lab b': ['lab komputer b'],
     'lab c': ['lab komputer c'],
     'lab d': ['lab multimedia'],
+    'lab multimedia': ['lab d'],
   };
 
   return new Set([normalized, ...(aliases[normalized] ?? [])]);
@@ -89,7 +92,10 @@ export function getLaboratoryActivity(
   let ongoingItem: PracticumActivityItem | null = null;
 
   // First check if any session is actively open right now
-  const openSessionItem = todayItems.find((item) => item.sessionStatus === 'open');
+  const openSessionItem = todayItems.find((item) => {
+    const schedule = schedules.find((s) => s.id === item.id);
+    return schedule?.status !== 'cancelled' && item.sessionStatus === 'open';
+  });
   if (openSessionItem) {
     ongoingItem = openSessionItem;
   } else {
@@ -125,8 +131,20 @@ export function getLaboratoryActivity(
   } else {
     // If none today, check nearest future date
     const futureItems = items
-      .filter((item) => item.date > todayStr)
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .filter((item) => {
+        const schedule = schedules.find((s) => s.id === item.id);
+        return (
+          item.date > todayStr &&
+          schedule?.status !== 'cancelled' &&
+          item.sessionStatus !== 'closed'
+        );
+      })
+      .sort((a, b) =>
+        `${a.date} ${schedules.find((s) => s.id === a.id)?.startTime ?? '00:00'}`
+          .localeCompare(
+            `${b.date} ${schedules.find((s) => s.id === b.id)?.startTime ?? '00:00'}`,
+          ),
+      );
     if (futureItems.length > 0) {
       upcomingItem = futureItems[0];
     }

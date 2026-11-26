@@ -105,6 +105,13 @@ function normalizeLabName(name: string): string {
   return name.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+function getDefaultLaboratories(): Laboratory[] {
+  return DEFAULT_LABORATORIES.map((lab, index) => ({
+    ...lab,
+    id: `default-lab-${index + 1}`,
+  }));
+}
+
 const LAB_ROOM_ALIASES: Record<string, string[]> = {
   'lab komputer a': ['lab a'],
   'lab a': ['lab komputer a'],
@@ -140,12 +147,7 @@ export function subscribeLaboratories(
     labsCollection,
     (snapshot) => {
       if (snapshot.empty) {
-        // Return default fallback laboratories if collection is completely unseeded
-        const fallbackLabs: Laboratory[] = DEFAULT_LABORATORIES.map((lab, index) => ({
-          ...lab,
-          id: `default-lab-${index + 1}`,
-        }));
-        callback(fallbackLabs);
+        callback(getDefaultLaboratories());
         return;
       }
 
@@ -159,11 +161,18 @@ export function subscribeLaboratories(
         }
       });
 
+      if (labs.length === 0) {
+        console.warn('Tidak ada data laboratorium valid; lokasi default akan ditampilkan.');
+        callback(getDefaultLaboratories());
+        return;
+      }
+
       labs.sort((a, b) => a.name.localeCompare(b.name));
       callback(labs);
     },
     (error) => {
       console.warn('Gagal berlangganan data laboratorium:', error);
+      callback(getDefaultLaboratories());
       onError?.(error);
     },
   );
@@ -204,8 +213,9 @@ export async function migrateAndSeedLaboratories(): Promise<void> {
     const name = typeof data.name === 'string' ? normalizeLabName(data.name) : '';
     const defaultIndex = LEGACY_DEFAULT_IDS[labSnapshot.id] ?? LEGACY_LAB_NAMES[name];
     const legacyLocation = isLegacyTelkomLocation(data);
+    const parsedLaboratory = parseLaboratory(labSnapshot.id, data);
 
-    if (defaultIndex !== undefined && legacyLocation) {
+    if (defaultIndex !== undefined && (!parsedLaboratory || legacyLocation)) {
       const target = DEFAULT_LABORATORIES[defaultIndex];
       await setDoc(
         labSnapshot.ref,
@@ -219,7 +229,7 @@ export async function migrateAndSeedLaboratories(): Promise<void> {
       continue;
     }
 
-    if (name) {
+    if (name && parsedLaboratory) {
       existingTargetLabs.add(name);
     }
   }

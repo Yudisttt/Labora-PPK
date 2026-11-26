@@ -60,7 +60,11 @@ export function useUserLocation() {
               });
             },
             (err) => {
+              if (!isMounted) return;
               console.warn('watchPosition error on web:', err.message);
+              setIsTracking(false);
+              setUserLocation(null);
+              setErrorMsg('Lokasi GPS perangkat tidak tersedia.');
             },
             { enableHighAccuracy: true, maximumAge: 1000 },
           );
