@@ -12,6 +12,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { BackButton } from '@/components/back-button';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -208,15 +209,23 @@ export default function AsistenPetaScreen() {
   return (
     <ThemedView style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {/* Floating Header */}
         <View style={styles.headerBar}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Kembali"
-            onPress={() => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal')}
-            style={({ pressed }) => [styles.roundIconBtn, pressed && styles.pressed]}>
-            <Ionicons name="arrow-back" size={20} color="#354024" />
-          </Pressable>
+          <View style={styles.headerTopRow}>
+            <BackButton
+              onPress={() => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal')}
+            />
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Tambah Laboratorium"
+              onPress={() => handleOpenEdit()}
+              style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+              <Ionicons name="add" size={18} color="#FFFFFF" />
+              <ThemedText type="smallBold" style={{ color: '#FFFFFF', fontSize: 12 }}>
+                Tambah Lab
+              </ThemedText>
+            </Pressable>
+          </View>
 
           <View style={styles.headerTitleGroup}>
             <ThemedText type="smallBold" style={styles.headerTitle}>
@@ -226,17 +235,6 @@ export default function AsistenPetaScreen() {
               {laboratories.length} Laboratorium Terdaftar
             </ThemedText>
           </View>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Atur Lokasi"
-            onPress={() => handleOpenEdit()}
-            style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <Ionicons name="add" size={18} color="#FFFFFF" />
-            <ThemedText type="smallBold" style={{ color: '#FFFFFF', fontSize: 12 }}>
-              Tambah Lab
-            </ThemedText>
-          </Pressable>
         </View>
 
         {/* Feedback Toast */}
@@ -557,17 +555,15 @@ export default function AsistenPetaScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#E5D7C4',
+    backgroundColor: '#F0E6D8',
   },
   safeArea: {
     flex: 1,
   },
   headerBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 10,
+    gap: 8,
     backgroundColor: 'rgba(253, 251, 247, 0.92)',
     borderBottomWidth: 1,
     borderColor: 'rgba(136, 144, 99, 0.25)',
@@ -575,6 +571,11 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' } as any)
       : {}),
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   roundIconBtn: {
     width: 38,
@@ -587,8 +588,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(136, 144, 99, 0.3)',
   },
   headerTitleGroup: {
-    flex: 1,
-    marginHorizontal: 12,
+    gap: 2,
   },
   headerTitle: {
     fontSize: 16,
@@ -793,7 +793,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#E5D7C4',
+    backgroundColor: '#F0E6D8',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,

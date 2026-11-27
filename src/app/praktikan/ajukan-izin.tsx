@@ -1,0 +1,340 @@
+import { router } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { SessionStatusBadge } from '@/components/session-status-badge';
+import { DashboardCapsule } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
+import { submitPermissionRequest } from '@/services/permission-requests';
+import { classifyPermissionReason } from '@/services/permission-sentiment';
+import { useApp } from '@/state/app-context';
+import type { PermissionAiPrediction, Session } from '@/types';
+import { formatDate } from '@/utils/format';
+
+const SENTIMENT_LABELS = {
+  negatif: 'Negatif',
+  netral: 'Netral',
+  positif: 'Positif',
+} as const;
+
+function predictionLabel(prediction: PermissionAiPrediction) {
+  if (prediction.label) {
+    return SENTIMENT_LABELS[prediction.label];
+  }
+
+  if (prediction.status === 'error') {
+    return 'Model tidak dapat memproses alasan';
+  }
+
+  return 'Belum dapat dianalisis';
+}
+
+function getErrorMessage(error: unknown) {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String(error.code)
+      : '';
+  const message = error instanceof Error ? error.message : '';
+
+  if (code === 'permission-denied' || message.includes('permission-denied')) {
+    return 'Akses Firestore ditolak. Pastikan akun dan aturan akses sudah disiapkan.';
+  }
+
+  if (
+    code === 'unavailable' ||
+    code === 'network-request-failed' ||
+    message.includes('unavailable') ||
+    message.includes('network')
+  ) {
+    return 'Tidak dapat terhubung ke Firestore. Periksa koneksi internet lalu coba lagi.';
+  }
+
+  return message || 'Terjadi kesalahan. Silakan coba lagi.';
+}
+
+export default function AjukanIzinScreen() {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const { currentUser, sessions, getSchedule } = useApp();
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [submitCanRetry, setSubmitCanRetry] = useState(false);
+  const [aiPrediction, setAiPrediction] = useState<PermissionAiPrediction | null>(null);
+  const redirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (redirectTimer.current) clearTimeout(redirectTimer.current);
+  }, []);
+
+  const availableSessions = useMemo(() => {
+    const currentSessionBySchedule = new Map<string, Session>();
+    sessions.forEach((session) => {
+      if (session.status === 'closed' || !getSchedule(session.scheduleId)) return;
+      const current = currentSessionBySchedule.get(session.scheduleId);
+      if (!current || session.status === 'open') currentSessionBySchedule.set(session.scheduleId, session);
+    });
+    return [...currentSessionBySchedule.values()];
+  }, [getSchedule, sessions]);
+
+  const selectedSession = availableSessions.find((session) => session.id === selectedSessionId);
+
+  async function handleSubmit() {
+    if (!currentUser || currentUser.role !== 'praktikan') {
+      setSubmitMessage('Hanya praktikan yang dapat mengajukan izin.');
+      return;
+    }
+    if (!selectedSession) {
+      setSubmitMessage('Pilih sesi praktikum yang akan diajukan izinnya.');
+      return;
+    }
+    if (!reason.trim()) {
+      setSubmitMessage('Tuliskan alasan izin terlebih dahulu.');
+      return;
+    }
+
+    setSubmitting(true);
+    setSubmitMessage(null);
+    setSubmitCanRetry(false);
+    const prediction = classifyPermissionReason(reason);
+    setAiPrediction(prediction);
+
+    try {
+      await submitPermissionRequest({
+        sessionId: selectedSession.id,
+        userId: currentUser.id,
+        userName: currentUser.name,
+        reason,
+        aiPrediction: prediction,
+      });
+      setReason('');
+      setSelectedSessionId(null);
+      setSubmitMessage('Pengajuan izin berhasil dikirim. Statusnya menunggu pemeriksaan asisten.');
+      redirectTimer.current = setTimeout(() => router.replace('/praktikan/izin'), 1400);
+    } catch (error) {
+      setSubmitMessage(getErrorMessage(error));
+      const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+      const message = error instanceof Error ? error.message.toLowerCase() : '';
+      setSubmitCanRetry(
+        code === 'unavailable' || code === 'network-request-failed' ||
+        message.includes('network') || message.includes('unavailable'),
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function sessionTitle(session: Session) {
+    const schedule = getSchedule(session.scheduleId);
+    return schedule ? `${schedule.praktikum} · ${schedule.kelas}` : 'Jadwal praktikum tidak ditemukan';
+  }
+
+  return (
+    <ThemedView
+      style={[
+        styles.screen,
+        { backgroundImage: `linear-gradient(180deg, ${theme.glassInput} 0%, ${theme.background} 58%, ${theme.primary} 100%)` },
+      ]}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <KeyboardAvoidingView style={styles.safeArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 95 }]}
+            keyboardShouldPersistTaps="handled">
+            <DashboardCapsule
+              title="Ajukan Izin Baru"
+              subtitle="Pilih sesi praktikum dan jelaskan alasan ketidakhadiranmu."
+              tone="light"
+              stats={[]}
+              backAction={{ label: 'Kembali', onPress: () => router.replace('/praktikan/izin') }}
+            />
+          <View
+            style={[
+              styles.formCard,
+              { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
+            ]}
+          >
+            <ThemedText type="smallBold">Pilih sesi</ThemedText>
+            {availableSessions.length === 0 ? (
+              <ThemedText type="small" themeColor="textSecondary">
+                Belum ada sesi yang dapat dipilih.
+              </ThemedText>
+            ) : (
+              <View style={styles.sessionList}>
+                <PaginatedCards
+                  items={availableSessions}
+                  keyExtractor={(session) => session.id}
+                  pageSize={4}
+                  renderItem={(session) => {
+                  const schedule = getSchedule(session.scheduleId);
+                  const selected = session.id === selectedSessionId;
+
+                  return (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      onPress={() => setSelectedSessionId(session.id)}
+                      style={({ pressed }) => [
+                        styles.sessionOption,
+                        {
+                          backgroundColor: selected
+                            ? 'rgba(136, 144, 99, 0.24)'
+                            : 'rgba(255, 255, 255, 0.42)',
+                          backgroundImage: selected
+                            ? `linear-gradient(145deg, rgba(255, 255, 255, 0.82) 0%, rgba(136, 144, 99, 0.24) 100%)`
+                            : 'linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(237, 228, 213, 0.5) 100%)',
+                          borderColor: selected ? theme.glassBorderHighlight : 'rgba(255, 255, 255, 0.82)',
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View style={styles.sessionCopy}>
+                        <ThemedText type="smallBold">{sessionTitle(session)}</ThemedText>
+                        {schedule ? (
+                          <ThemedText type="small" themeColor="textSecondary">
+                            {formatDate(schedule.date)} · {schedule.startTime}–{schedule.endTime} WIB
+                          </ThemedText>
+                        ) : null}
+                      </View>
+                      <SessionStatusBadge status={session.status} />
+                    </Pressable>
+                  );
+                  }}
+                />
+              </View>
+            )}
+
+            <View style={styles.reasonHeader}>
+              <ThemedText type="smallBold">Alasan izin</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {reason.length}/1000
+              </ThemedText>
+            </View>
+            <TextInput
+              accessibilityLabel="Alasan pengajuan izin"
+              value={reason}
+              onChangeText={(value) => {
+                setReason(value);
+                setAiPrediction(null);
+              }}
+              placeholder="Ceritakan alasan kamu tidak dapat mengikuti praktikum..."
+              placeholderTextColor={theme.textSecondary}
+              multiline
+              maxLength={1000}
+              textAlignVertical="top"
+              style={[
+                styles.reasonInput,
+                {
+                  color: theme.text,
+                  backgroundColor: 'rgba(247, 241, 231, 0.58)',
+                  backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.8) 0%, rgba(237, 228, 213, 0.52) 100%)',
+                  borderColor: theme.glassBorderHighlight,
+                },
+              ]}
+            />
+
+            {aiPrediction ? (
+              <View style={[styles.aiBox, { backgroundColor: theme.warningSoft }]}>
+                <ThemedText type="smallBold">
+                  Klasifikasi alasan AI: {predictionLabel(aiPrediction)}
+                </ThemedText>
+                <ThemedText type="small">
+                  Hasil klasifikasi ini hanya informasi pendukung. Asisten tetap memeriksa alasan dan menentukan keputusan izin.
+                </ThemedText>
+              </View>
+            ) : null}
+
+            {submitMessage ? (
+              <View
+                accessibilityRole="alert"
+                style={[
+                  styles.messageBox,
+                  {
+                    backgroundColor: submitMessage.startsWith('Pengajuan')
+                      ? theme.successSoft
+                      : theme.dangerSoft,
+                  },
+                ]}
+              >
+                <ThemedText type="small">{submitMessage}</ThemedText>
+                {submitCanRetry ? (
+                  <Pressable accessibilityRole="button" onPress={() => void handleSubmit()}>
+                    <ThemedText type="smallBold" style={{ color: theme.primary }}>Coba kirim lagi</ThemedText>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: submitting }}
+              disabled={submitting}
+              onPress={handleSubmit}
+              style={({ pressed }) => [
+                styles.submitButton,
+                { backgroundColor: theme.primary, opacity: submitting ? 0.65 : 1 },
+                pressed && !submitting && styles.pressed,
+              ]}
+            >
+              <ThemedText type="smallBold" style={{ color: theme.primaryText }}>
+                {submitting ? 'Mengirim...' : 'Kirim Pengajuan Izin'}
+              </ThemedText>
+            </Pressable>
+          </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </ThemedView>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  safeArea: { flex: 1 },
+  content: {
+    width: '100%',
+    maxWidth: MaxContentWidth,
+    alignSelf: 'center',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.four,
+    gap: Spacing.four,
+  },
+  formCard: { padding: Spacing.three, gap: Spacing.two, borderRadius: 18, borderWidth: 1.5 },
+  sessionList: { gap: Spacing.two },
+  sessionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+    padding: Spacing.two,
+    borderWidth: 1,
+    borderRadius: Spacing.two,
+  },
+  sessionCopy: { flex: 1, gap: Spacing.half },
+  reasonHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  reasonInput: {
+    minHeight: 160,
+    padding: Spacing.three,
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    fontFamily: 'Poppins_400Regular',
+    fontSize: 15,
+  },
+  messageBox: { padding: Spacing.two, borderRadius: Spacing.two },
+  aiBox: { padding: Spacing.two, borderRadius: Spacing.two, gap: Spacing.one },
+  submitButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.three, borderRadius: Spacing.two },
+  pressed: { opacity: 0.75 },
+});

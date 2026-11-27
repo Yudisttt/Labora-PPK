@@ -63,20 +63,16 @@ export function RoleSwitcher() {
           </View>
         </View>
 
-        {/* Right: Pill Menu Burger Button */}
+        {/* Right: Sign out shortcut */}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Menu Akun"
+          accessibilityLabel="Keluar dari akun"
           onPress={() => setVisible(true)}
           style={({ pressed }) => [
             styles.menuPillButton,
             pressed && styles.pressed,
           ]}>
-          <View style={styles.burgerIcon}>
-            <View style={styles.burgerLine} />
-            <View style={styles.burgerLine} />
-            <View style={styles.burgerLine} />
-          </View>
+          <Ionicons name="log-out-outline" size={21} color="#FFFFFF" />
         </Pressable>
       </View>
 
@@ -145,7 +141,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
     paddingHorizontal: 6,
-    paddingTop: 8,
+    paddingTop: Spacing.three,
     paddingBottom: 16,
   },
   leftContainer: {
@@ -197,18 +193,6 @@ const styles = StyleSheet.create({
           WebkitBackdropFilter: 'blur(12px)',
         } as unknown as object)
       : {}),
-  },
-  burgerIcon: {
-    width: 18,
-    height: 12,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  burgerLine: {
-    width: 18,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: '#FFFFFF',
   },
   backdrop: {
     flex: 1,

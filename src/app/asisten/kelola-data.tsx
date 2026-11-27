@@ -16,18 +16,21 @@ import {
   DashboardCapsule,
   DashboardTabs,
 } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { subscribeLaboratories } from '@/services/laboratories';
 import {
   addParticipant,
   createClass,
-  createSeriesMeeting,
   createSchedule,
+  createSeriesMeeting,
   createWeeklyScheduleSeries,
   deleteClass,
   deleteSchedule,
+  endScheduleSeries,
   listenClasses,
   listenParticipants,
   listenPraktikanProfiles,
@@ -36,13 +39,11 @@ import {
   rescheduleMeeting,
   updateClass,
   updateSchedule,
-  endScheduleSeries,
   type ClassParticipant,
   type PracticumClass,
   type PracticumSchedule,
 } from '@/services/practicum-data';
 import { useAuth } from '@/state/auth-context';
-import { subscribeLaboratories } from '@/services/laboratories';
 import type { Laboratory, User } from '@/types';
 import { formatDate } from '@/utils/format';
 import {
@@ -153,6 +154,9 @@ export default function ManagePracticumDataScreen() {
   const [addingMeetingToSeriesId, setAddingMeetingToSeriesId] = useState<string | null>(null);
   const [meetingQuery, setMeetingQuery] = useState('');
   const [expandedSeriesId, setExpandedSeriesId] = useState<string | null>(null);
+  const [participantDetailClassId, setParticipantDetailClassId] = useState<
+    string | null
+  >(null);
   const loadedStreams = useRef(new Set<string>());
 
   const activeClassId = classes.some((item) => item.id === selectedClassId)
@@ -163,6 +167,14 @@ export default function ManagePracticumDataScreen() {
     ? selectedUserId
     : users[0]?.id ?? '';
   const activeUser = users.find((item) => item.id === activeUserId);
+  const participantDetailClass = participantDetailClassId
+    ? (classes.find((item) => item.id === participantDetailClassId) ?? null)
+    : null;
+  const participantDetailParticipants = participantDetailClass
+    ? participants.filter(
+        (participant) => participant.classId === participantDetailClass.id,
+      )
+    : [];
   const labGroups = useMemo(() => {
     const groups = new Map<
       string,
@@ -875,9 +887,8 @@ export default function ManagePracticumDataScreen() {
         {classes.length === 0 ? (
           <EmptyState text="Belum ada Lab dan praktikum. Tambahkan keduanya untuk mulai mengelola peserta dan jadwal." />
         ) : (
-          labGroups.map((lab) => (
+          <PaginatedCards items={labGroups} keyExtractor={(lab) => lab.name.trim().toLocaleLowerCase()} pageSize={4} renderItem={(lab) => (
             <ThemedView
-              key={lab.name.trim().toLocaleLowerCase()}
               type="backgroundElement"
               style={[
                 styles.card,
@@ -887,9 +898,8 @@ export default function ManagePracticumDataScreen() {
                 },
               ]}>
               <ThemedText type="smallBold">{lab.name}</ThemedText>
-              {lab.offerings.map((practicumClass) => (
+              <PaginatedCards items={lab.offerings} keyExtractor={(practicumClass) => practicumClass.id} pageSize={4} renderItem={(practicumClass) => (
                 <View
-                  key={practicumClass.id}
                   style={[
                     styles.card,
                     {
@@ -923,9 +933,9 @@ export default function ManagePracticumDataScreen() {
                     />
                   </View>
                 </View>
-              ))}
+              )} />
             </ThemedView>
-          ))
+          )} />
         )}
       </View>
     );
@@ -1061,10 +1071,8 @@ export default function ManagePracticumDataScreen() {
           )}
         </ThemedView>
 
-        {labGroups.map((lab) => {
-          return (
+        <PaginatedCards items={labGroups} keyExtractor={(lab) => `participants-${lab.name.trim().toLocaleLowerCase()}`} pageSize={4} renderItem={(lab) => (
             <ThemedView
-              key={`participants-${lab.name.trim().toLocaleLowerCase()}`}
               type="backgroundElement"
               style={[
                 styles.card,
@@ -1074,13 +1082,12 @@ export default function ManagePracticumDataScreen() {
                 },
               ]}>
               <ThemedText type="smallBold">{lab.name}</ThemedText>
-              {lab.offerings.map((practicumClass) => {
+              <PaginatedCards items={lab.offerings} keyExtractor={(practicumClass) => practicumClass.id} pageSize={4} renderItem={(practicumClass) => {
                 const classParticipants = participants.filter(
                   (participant) => participant.classId === practicumClass.id,
                 );
                 return (
                   <View
-                    key={practicumClass.id}
                     style={[
                       styles.card,
                       {
@@ -1088,52 +1095,45 @@ export default function ManagePracticumDataScreen() {
                         borderColor: theme.glassBorder,
                       },
                     ]}>
-                    <ThemedText type="smallBold">
-                      {practicumClass.course}
-                    </ThemedText>
-                    {classParticipants.length === 0 ? (
-                      <ThemedText type="small" themeColor="textSecondary">
-                        Belum ada peserta untuk praktikum ini.
-                      </ThemedText>
-                    ) : (
-                      classParticipants.map((participant) => {
-                        const user = users.find(
-                          (item) => item.id === participant.userId,
-                        );
-                        return (
-                          <View key={participant.id} style={styles.listRow}>
-                            <View style={styles.flex}>
-                              <ThemedText type="smallBold">
-                                {user?.name ?? 'Praktikan tidak ditemukan'}
-                              </ThemedText>
-                              <ThemedText type="small" themeColor="textSecondary">
-                                {user?.identityNumber ?? participant.userId}
-                              </ThemedText>
-                            </View>
-                            <ActionButton
-                              label="Hapus"
-                              onPress={() =>
-                                setDeleteTarget({
-                                  type: 'participant',
-                                  id: participant.id,
-                                  classId: participant.classId,
-                                  userId: participant.userId,
-                                  label: user?.name ?? 'peserta',
-                                })
-                              }
-                              disabled={busy}
-                              danger
-                            />
-                          </View>
-                        );
-                      })
-                    )}
+                    <View style={styles.listRow}>
+                      <View style={styles.flex}>
+                        <ThemedText type="smallBold">
+                          {practicumClass.course}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {classParticipants.length === 0
+                            ? 'Belum ada peserta'
+                            : `${classParticipants.length} peserta`}
+                        </ThemedText>
+                      </View>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Lihat detail peserta ${practicumClass.course}`}
+                        onPress={() =>
+                          setParticipantDetailClassId(practicumClass.id)
+                        }
+                        style={({ pressed }) => [
+                          styles.detailButton,
+                          { borderColor: theme.primary },
+                          pressed && styles.pressedRow,
+                        ]}>
+                        <ThemedText
+                          type="smallBold"
+                          style={{ color: theme.primary }}>
+                          Lihat Detail
+                        </ThemedText>
+                        <ThemedText
+                          type="smallBold"
+                          style={{ color: theme.primary }}>
+                          ›
+                        </ThemedText>
+                      </Pressable>
+                    </View>
                   </View>
                 );
-              })}
+              }} />
             </ThemedView>
-          );
-        })}
+        )} />
       </View>
     );
   }
@@ -1233,9 +1233,8 @@ export default function ManagePracticumDataScreen() {
         {scheduleSeries.length === 0 ? (
           <EmptyState text="Belum ada jadwal rutin. Buat jadwal mingguan dari formulir di atas." />
         ) : (
-          scheduleSeries.map(({ id, template, meetings, active }) => (
+          <PaginatedCards items={scheduleSeries} keyExtractor={({ id }) => id} pageSize={4} renderItem={({ id, template, meetings, active }) => (
             <ThemedView
-              key={id}
               type="backgroundElement"
               style={[
                 styles.card,
@@ -1283,7 +1282,7 @@ export default function ManagePracticumDataScreen() {
                 </View>
               ) : null}
             </ThemedView>
-          ))
+          )} />
         )}
       </>
     );
@@ -1349,6 +1348,8 @@ export default function ManagePracticumDataScreen() {
           : null}
 
         <View style={styles.section}>
+          {!expandedSeries && !expandedSchedule && (
+            <>
           <ThemedText type="smallBold">Daftar pertemuan</ThemedText>
 
           <View
@@ -1485,8 +1486,29 @@ export default function ManagePracticumDataScreen() {
               })}
             </View>
           )}
+            </>
+          )}
 
           {expandedSeries && (
+            <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Kembali ke daftar pertemuan"
+            onPress={() => setExpandedSeriesId(null)}
+            style={({ pressed }) => [
+              styles.closeDetailButton,
+              {
+                alignSelf: 'flex-start',
+                backgroundColor: theme.glassInput,
+                borderColor: theme.glassBorder,
+              },
+              pressed && styles.pressedRow,
+            ]}>
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              ‹ Kembali
+            </ThemedText>
+          </Pressable>
+
             <ThemedView
               type="backgroundElement"
               style={[
@@ -1507,25 +1529,13 @@ export default function ManagePracticumDataScreen() {
                     {expandedSeries.template.endTime}
                   </ThemedText>
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Tutup detail pertemuan"
-                  onPress={() => setExpandedSeriesId(null)}
-                  style={({ pressed }) => [
-                    styles.closeDetailButton,
-                    {
-                      backgroundColor: theme.glassInput,
-                      borderColor: theme.glassBorder,
-                    },
-                    pressed && styles.pressedRow,
-                  ]}>
-                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                    Tutup Detail
-                  </ThemedText>
-                </Pressable>
               </View>
 
-              {expandedSeries.meetings.map((meeting) => {
+              <PaginatedCards
+                items={expandedSeries.meetings}
+                keyExtractor={(meeting) => meeting.id}
+                pageSize={5}
+                renderItem={(meeting) => {
                 const isPast = meeting.date < todayKey();
                 const cancelled = meeting.status === 'cancelled';
                 const rescheduled = meeting.status === 'rescheduled';
@@ -1588,7 +1598,8 @@ export default function ManagePracticumDataScreen() {
                     ) : null}
                   </View>
                 );
-              })}
+                }}
+              />
 
               {expandedSeries.active ? (
                 <View style={styles.buttonRow}>
@@ -1613,9 +1624,29 @@ export default function ManagePracticumDataScreen() {
                 </View>
               ) : null}
             </ThemedView>
+            </>
           )}
 
           {expandedSchedule && (
+            <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Kembali ke daftar pertemuan"
+            onPress={() => setExpandedSeriesId(null)}
+            style={({ pressed }) => [
+              styles.closeDetailButton,
+              {
+                alignSelf: 'flex-start',
+                backgroundColor: theme.glassInput,
+                borderColor: theme.glassBorder,
+              },
+              pressed && styles.pressedRow,
+            ]}>
+            <ThemedText type="smallBold" style={{ color: theme.primary }}>
+              ‹ Kembali
+            </ThemedText>
+          </Pressable>
+
             <ThemedView
               type="backgroundElement"
               style={[
@@ -1635,22 +1666,6 @@ export default function ManagePracticumDataScreen() {
                     {expandedSchedule.startTime}–{expandedSchedule.endTime}
                   </ThemedText>
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Tutup detail pertemuan"
-                  onPress={() => setExpandedSeriesId(null)}
-                  style={({ pressed }) => [
-                    styles.closeDetailButton,
-                    {
-                      backgroundColor: theme.glassInput,
-                      borderColor: theme.glassBorder,
-                    },
-                    pressed && styles.pressedRow,
-                  ]}>
-                  <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                    Tutup Detail
-                  </ThemedText>
-                </Pressable>
               </View>
 
               {(() => {
@@ -1716,6 +1731,7 @@ export default function ManagePracticumDataScreen() {
                 );
               })()}
             </ThemedView>
+            </>
           )}
         </View>
       </>
@@ -1731,9 +1747,12 @@ export default function ManagePracticumDataScreen() {
           <DashboardCapsule
             title="Kelola Data Praktikum"
             subtitle="Kelola Lab, peserta, jadwal rutin, dan pertemuan."
-            actions={[
-              { label: 'Kembali ke Jadwal', onPress: () => router.replace('/asisten/jadwal') },
-            ]}
+            showGreeting={false}
+            stats={[]}
+            backAction={{
+              label: 'Kembali ke Jadwal',
+              onPress: () => router.replace('/asisten/jadwal'),
+            }}
           />
           <DashboardTabs
             tabs={TABS.map((tab) => ({
@@ -2133,6 +2152,95 @@ export default function ManagePracticumDataScreen() {
       </Modal>
 
       <Modal
+        visible={participantDetailClass !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setParticipantDetailClassId(null)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Tutup detail peserta"
+            style={StyleSheet.absoluteFill}
+            onPress={() => setParticipantDetailClassId(null)}
+          />
+          <ThemedView
+            type="backgroundElement"
+            style={[
+              styles.participantModalCard,
+              {
+                backgroundColor: theme.glassCard,
+                borderColor: theme.glassBorder,
+              },
+            ]}>
+            <View style={styles.participantModalHeader}>
+              <View style={styles.flex}>
+                <ThemedText type="smallBold">
+                  {participantDetailClass?.course}
+                </ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  {participantDetailClass?.name} ·{' '}
+                  {participantDetailParticipants.length} peserta
+                </ThemedText>
+              </View>
+              <ActionButton
+                label="Tutup"
+                onPress={() => setParticipantDetailClassId(null)}
+              />
+            </View>
+            <ScrollView
+              style={styles.participantModalScroll}
+              showsVerticalScrollIndicator>
+              {participantDetailParticipants.length === 0 ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  Belum ada peserta untuk praktikum ini.
+                </ThemedText>
+              ) : (
+                participantDetailParticipants.map((participant, index) => {
+                  const user = users.find(
+                    (item) => item.id === participant.userId,
+                  );
+                  return (
+                    <View key={participant.id} style={styles.listRow}>
+                      <ThemedText
+                        type="small"
+                        themeColor="textSecondary"
+                        style={styles.participantNumber}>
+                        {index + 1}.
+                      </ThemedText>
+                      <View style={styles.flex}>
+                        <ThemedText type="smallBold">
+                          {user?.name ?? 'Praktikan tidak ditemukan'}
+                        </ThemedText>
+                        <ThemedText type="small" themeColor="textSecondary">
+                          {user?.identityNumber ?? participant.userId}
+                        </ThemedText>
+                      </View>
+                      <ActionButton
+                        label="Hapus"
+                        onPress={() => {
+                          // Tutup detail dulu agar dua Modal tidak tumpang tindih (bermasalah di iOS).
+                          setParticipantDetailClassId(null);
+                          setDeleteTarget({
+                            type: 'participant',
+                            id: participant.id,
+                            classId: participant.classId,
+                            userId: participant.userId,
+                            label: user?.name ?? 'peserta',
+                          });
+                        }}
+                        disabled={busy}
+                        danger
+                      />
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <Modal
         visible={deleteTarget !== null}
         transparent
         animationType="fade"
@@ -2405,9 +2513,13 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
-    padding: Spacing.four,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.four,
     paddingBottom: 110,
     gap: Spacing.four,
+  },
+  dashboardActionRow: {
+    alignItems: 'flex-start',
   },
   header: {
     gap: Spacing.one,
@@ -2728,6 +2840,28 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  participantModalCard: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '80%',
+    padding: Spacing.four,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    gap: Spacing.three,
+  },
+  participantModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.two,
+  },
+  participantNumber: {
+    width: 28,
+  },
+  participantModalScroll: {
+    flexGrow: 0,
   },
   confirmCard: {
     alignSelf: 'center',

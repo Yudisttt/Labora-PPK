@@ -1,20 +1,22 @@
-import { useRef, useState } from 'react';
-import { router } from 'expo-router';
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { router } from 'expo-router';
+import { useRef, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionButton } from '@/components/action-button';
 import { DashboardCapsule } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
 import { SessionStatusBadge } from '@/components/session-status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
+import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { useApp } from '@/state/app-context';
 import { getAttendanceLocation } from '@/services/attendance-location';
 import { getLaboratoryForRoom } from '@/services/sessions';
+import { useApp } from '@/state/app-context';
 import type { CheckInFailureReason, Schedule } from '@/types';
 import { formatDate, formatTime } from '@/utils/format';
 import { calculateDistanceMeters } from '@/utils/geo';
@@ -76,6 +78,8 @@ export default function PresensiScreen() {
   const [message, setMessage] = useState('Pilih sesi yang dibuka untuk memeriksa lokasi dan melakukan presensi.');
   const [isError, setIsError] = useState(false);
   const [checkedInSessionId, setCheckedInSessionId] = useState<string | null>(null);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
   const [locationChecks, setLocationChecks] = useState<Record<string, LocationCheck>>({});
   const [checkingSessionId, setCheckingSessionId] = useState<string | null>(null);
@@ -173,9 +177,16 @@ export default function PresensiScreen() {
         setMessage(FAILURE_MESSAGES[outcome.reason]);
         setIsError(true);
       } else {
+        const successText = `Presensi ${schedule?.praktikum ?? 'praktikum'} berhasil tercatat${outcome.record.checkedInAt ? ` pukul ${formatTime(outcome.record.checkedInAt)}` : ''}.`;
         setCheckedInSessionId(sessionId);
-        setMessage(`Presensi ${schedule?.praktikum ?? 'praktikum'} berhasil tercatat${outcome.record.checkedInAt ? ` pukul ${formatTime(outcome.record.checkedInAt)}` : ''}.`);
+        setMessage(successText);
         setIsError(false);
+        // QR otomatis tertutup & pemindaian dihentikan setelah berhasil
+        setScannerVisible(false);
+        setScanPaused(true);
+        scanLock.current = true;
+        setSuccessMessage(successText);
+        setSuccessModalVisible(true);
       }
     } catch (error) {
       if (isNetworkFailure(error)) {
@@ -226,7 +237,7 @@ export default function PresensiScreen() {
   }
 
   return (
-    <ThemedView style={[styles.screen, { backgroundImage: `linear-gradient(180deg, ${theme.glassInput} 0%, ${theme.background} 58%, ${theme.primary} 100%)` }]}>
+    <ThemedView style={[styles.screen, { backgroundImage: `linear-gradient(180deg, ${theme.glassInput} 0%, ${theme.background} 58%, #DCE2CB 100%)` }]}>
       <SafeAreaView style={styles.screen} edges={['top']}>
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}>
           <DashboardCapsule
@@ -239,11 +250,6 @@ export default function PresensiScreen() {
             ]}
           />
 
-          <View style={styles.heading}>
-            <ThemedText type="title">Presensi Praktikan</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Presensi aktif setelah sesi dibuka dan lokasi berada dalam radius laboratorium. Koordinat dan akurasi lokasi disimpan bersama catatan presensi.</ThemedText>
-          </View>
-
           {openSessions.length === 0 ? (
             <ThemedView type="backgroundElement" style={styles.notice}>
               <ThemedText type="smallBold">Belum ada sesi yang dibuka</ThemedText>
@@ -251,12 +257,12 @@ export default function PresensiScreen() {
             </ThemedView>
           ) : !permission ? (
             <ThemedView type="backgroundElement" style={styles.notice}>
-              <ThemedText type="small" themeColor="textSecondary">Memeriksa izin kamera untuk opsi pemindaian QR…</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Memeriksa izin kamera…</ThemedText>
             </ThemedView>
           ) : !permission.granted ? (
             <ThemedView type="backgroundElement" style={styles.notice}>
-              <ThemedText type="smallBold">QR opsional</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">Kamu tetap bisa presensi dengan tombol di kartu sesi. Izinkan kamera jika ingin memakai QR.</ThemedText>
+              <ThemedText type="smallBold">Pemindai QR belum aktif</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">Izinkan kamera untuk memindai QR presensi.</ThemedText>
               <ActionButton label="Aktifkan pemindai QR" onPress={requestPermission} />
               {!permission.canAskAgain ? (
                 <Pressable onPress={() => Linking.openSettings()}>
@@ -267,7 +273,6 @@ export default function PresensiScreen() {
           ) : (
             <View style={styles.qrSection}>
               <View style={styles.scannerHeader}>
-                <ThemedText type="smallBold">Atau pindai QR presensi</ThemedText>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={scannerVisible ? 'Tutup pemindai QR' : 'Buka pemindai QR'}
@@ -321,7 +326,11 @@ export default function PresensiScreen() {
                 <ThemedText type="smallBold">Belum ada sesi yang dibuka</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">Sesi akan muncul di sini setelah asisten membukanya.</ThemedText>
               </BlurView>
-            ) : openSchedules.map((schedule) => {
+            ) : (
+              <PaginatedCards
+                items={openSchedules}
+                keyExtractor={(schedule) => schedule.id}
+                renderItem={(schedule) => {
               const session = sessions.find((item) => item.scheduleId === schedule.id);
               const sessionStatus = session?.status ?? 'scheduled';
               const record = session ? myAttendance.find((item) => item.sessionId === session.id) : undefined;
@@ -337,7 +346,7 @@ export default function PresensiScreen() {
                       ? 'Belum Presensi'
                       : 'Menunggu Sesi Dibuka';
               return (
-                <BlurView key={schedule.id} intensity={62} tint="light" style={[styles.sessionCard, { borderColor: sessionStatus === 'open' ? theme.primary : theme.glassBorderHighlight }]}>
+                <BlurView intensity={62} tint="light" style={[styles.sessionCard, { borderColor: sessionStatus === 'open' ? theme.primary : theme.glassBorderHighlight }]}>
                   <View style={styles.sessionCardHeader}>
                     <View style={styles.sessionCopy}>
                       <ThemedText type="subtitle">{schedule.praktikum}</ThemedText>
@@ -383,10 +392,29 @@ export default function PresensiScreen() {
                     </View>
                   </View>
                 </BlurView>
-              );
-            })}
+                );
+                }}
+              />
+            )}
           </View>
         </ScrollView>
+        <Modal visible={successModalVisible} transparent animationType="fade" onRequestClose={() => setSuccessModalVisible(false)}>
+          <View style={styles.successBackdrop}>
+            <View style={[styles.successCard, { backgroundColor: theme.glassInput, borderColor: theme.glassBorder }]}>
+              <View style={[styles.successIcon, { backgroundColor: theme.primary }]}>
+                <Ionicons name="checkmark" size={56} color={theme.primaryText} />
+              </View>
+              <ThemedText style={[styles.successTitle, { color: theme.primary }]}>Presensi Berhasil!</ThemedText>
+              <ThemedText type="small" style={[styles.successText, { color: theme.textSecondary }]}>{successMessage}</ThemedText>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setSuccessModalVisible(false)}
+                style={({ pressed }) => [styles.successButton, { backgroundColor: theme.primary }, pressed && styles.pressed]}>
+                <ThemedText type="smallBold" style={{ color: theme.primaryText }}>Selesai</ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
         <Modal visible={selectedSchedule !== null} transparent animationType="slide" onRequestClose={() => setSelectedSchedule(null)}>
           <View style={styles.modalBackdrop}>
             <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel="Tutup detail sesi" onPress={() => setSelectedSchedule(null)} />
@@ -451,7 +479,7 @@ const styles = StyleSheet.create({
   sessionCopy: { flex: 1, gap: Spacing.half },
   heading: { gap: Spacing.one },
   qrSection: { gap: Spacing.two },
-  scannerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two },
+  scannerHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: Spacing.two },
   scannerToggle: { minHeight: 36, justifyContent: 'center', paddingHorizontal: Spacing.three, borderRadius: 999, borderWidth: 1 },
   disabled: { opacity: 0.55 },
   notice: { padding: Spacing.three, borderRadius: 22, gap: Spacing.two },
@@ -477,6 +505,12 @@ const styles = StyleSheet.create({
   detailValue: { flex: 1, textAlign: 'right' },
   statusNotice: { padding: Spacing.three, borderRadius: 20, gap: Spacing.one },
   closeButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 18 },
+  successBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.four, backgroundColor: 'rgba(24,26,20,0.6)' },
+  successCard: { width: '100%', maxWidth: 360, alignItems: 'center', gap: Spacing.two, padding: Spacing.four, borderWidth: 1.5, borderRadius: 32 },
+  successIcon: { width: 104, height: 104, borderRadius: 52, alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.one },
+  successTitle: { fontFamily: Fonts.bold, fontSize: 24, lineHeight: 32, textAlign: 'center' },
+  successText: { textAlign: 'center' },
+  successButton: { alignSelf: 'stretch', minHeight: 50, alignItems: 'center', justifyContent: 'center', borderRadius: 18, marginTop: Spacing.two },
   pressed: { opacity: 0.78 },
 });
 

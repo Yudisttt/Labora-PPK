@@ -1,6 +1,8 @@
+import { createSession } from '@/services/sessions';
+import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { createSession } from '@/services/sessions';
 import {
   Modal,
   Platform,
@@ -10,14 +12,15 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 
-import { SessionStatusBadge } from '@/components/session-status-badge';
+import { BackButton } from '@/components/back-button';
 import { DashboardCapsule } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
+import { SessionStatusBadge } from '@/components/session-status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Fonts, Spacing } from '@/constants/theme';
@@ -506,7 +509,7 @@ export default function AsistenJadwalScreen() {
             <>
               {/* Top Big Capsule Container Asisten */}
               <DashboardCapsule
-                title="Kelola Data"
+                title="Manajemen Praktikum"
                 subtitle="Kelola sesi dan presensimu hari ini"
               />
 
@@ -541,18 +544,7 @@ export default function AsistenJadwalScreen() {
               </View>
             </>
           ) : (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setActiveTab('jadwal')}
-              style={({ pressed }) => [
-                styles.backButton,
-                { borderColor: '#C8B995' },
-                pressed && styles.pressed,
-              ]}>
-              <ThemedText type="smallBold" style={{ color: theme.primary }}>
-                ← Kembali
-              </ThemedText>
-            </Pressable>
+            <BackButton onPress={() => setActiveTab('jadwal')} />
           )}
 
           {/* ============================================================== */}
@@ -708,8 +700,12 @@ export default function AsistenJadwalScreen() {
                   )}
                 </ThemedView>
               ) : (
-                <View style={styles.scheduleList}>
-                  {filteredSchedules.map((schedule) => {
+                <PaginatedCards
+                  items={filteredSchedules}
+                  keyExtractor={(schedule) => schedule.id}
+                  pageSize={4}
+                  style={styles.scheduleList}
+                  renderItem={(schedule) => {
                     const session = getSessionsForSchedule(schedule.id)[0];
                     const assistant = getUser(schedule.assistantId);
 
@@ -735,13 +731,13 @@ export default function AsistenJadwalScreen() {
                     );
 
                     return (
-                      <ThemedView
-                        key={schedule.id}
-                        type="glassCard"
+                      <BlurView
+                        intensity={64}
+                        tint="light"
                         style={[
                           styles.scheduleCard,
                           {
-                            borderColor: isOpen ? theme.moss : theme.glassBorder,
+                            borderColor: isOpen ? theme.moss : 'rgba(255, 255, 255, 0.88)',
                           },
                           isOpen && styles.scheduleCardActive,
                         ]}>
@@ -772,8 +768,8 @@ export default function AsistenJadwalScreen() {
                           style={[
                             styles.scheduleInfoBox,
                             {
-                              backgroundColor: theme.glassCard,
-                              borderColor: theme.glassBorder,
+                              backgroundColor: 'rgba(255, 255, 255, 0.56)',
+                              borderColor: 'rgba(200, 185, 149, 0.45)',
                             },
                           ]}>
                           <View style={styles.infoCol}>
@@ -1052,10 +1048,10 @@ export default function AsistenJadwalScreen() {
                             
                           )}
                         </View>
-                      </ThemedView>
+                      </BlurView>
                     );
-                  })}
-                </View>
+                  }}
+                />
               )}
             </View>
           )}
@@ -2181,12 +2177,14 @@ const styles = StyleSheet.create({
     width: '30%',
     flexBasis: '30%',
     flexGrow: 0,
-    aspectRatio: 1,
+    aspectRatio: undefined,
+    minHeight: 90,
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: Spacing.two,
-    padding: Spacing.three,
+    gap: Spacing.one,
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.one,
     borderRadius: 16,
     borderWidth: 1,
     shadowOffset: { width: 0, height: 5 },
@@ -2464,11 +2462,19 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 24,
     borderWidth: 1.5,
     gap: Spacing.three,
-    shadowColor: '#4C3D19',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    elevation: 2,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.56)',
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 5,
+    ...(Platform.OS === 'web'
+      ? ({
+          backdropFilter: 'blur(18px)',
+          WebkitBackdropFilter: 'blur(18px)',
+        } as object)
+      : {}),
   },
   scheduleCardActive: {
     borderWidth: 2,

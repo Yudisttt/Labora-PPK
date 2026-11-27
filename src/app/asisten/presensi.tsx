@@ -1,19 +1,21 @@
+import { BlurView } from 'expo-blur';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { BlurView } from 'expo-blur';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DashboardCapsule } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
 import { SessionStatusBadge } from '@/components/session-status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { useApp } from '@/state/app-context';
+import type { ClassParticipant } from '@/services/practicum-data';
 import { listenParticipants } from '@/services/practicum-data';
 import { getOrCreateSessionQrCode, markAttendanceManually } from '@/services/sessions';
-import type { ClassParticipant } from '@/services/practicum-data';
+import { useApp } from '@/state/app-context';
 import { formatDate } from '@/utils/format';
 
 type ManualStatus = 'present' | 'absent' | 'excused';
@@ -61,10 +63,16 @@ export default function AsistenPresensiScreen() {
     <ThemedView style={styles.screen}>
       <SafeAreaView style={styles.screen} edges={['top']}>
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}>
-          <View style={styles.heading}>
-            <ThemedText type="title">QR Presensi</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">Tampilkan QR ini agar praktikan dapat memindai dan mencatat kehadiran.</ThemedText>
-          </View>
+          <DashboardCapsule
+            title="QR Presensi"
+            subtitle="Tampilkan QR ini agar praktikan dapat memindai dan mencatat kehadiran."
+            showGreeting={false}
+            stats={[]}
+            backAction={{
+              label: 'Kembali',
+              onPress: () => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal'),
+            }}
+          />
           {error ? (
             <BlurView intensity={42} tint="light" style={[styles.card, styles.glassCard, { borderColor: theme.danger }]}>
               <ThemedText type="small" style={{ color: theme.danger }}>{error}</ThemedText>
@@ -75,11 +83,15 @@ export default function AsistenPresensiScreen() {
               <ThemedText type="smallBold">Belum ada sesi yang dibuka</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">Buka sesi dari halaman Sesi untuk menampilkan QR presensi.</ThemedText>
             </BlurView>
-          ) : openSessions.map((session) => {
+          ) : (
+            <PaginatedCards
+              items={openSessions}
+              keyExtractor={(session) => `qr-${session.id}`}
+              renderItem={(session) => {
             const schedule = getScheduleForSession(session.id);
             const code = qrCodes[session.id];
             return (
-              <BlurView key={session.id} intensity={42} tint="light" style={[styles.card, styles.glassCard, { borderColor: theme.glassBorder }]}>
+              <BlurView intensity={42} tint="light" style={[styles.card, styles.glassCard, { borderColor: theme.glassBorder }]}>
                 <View style={styles.cardHeading}>
                   <View style={styles.titleBlock}>
                     <ThemedText type="subtitle">{schedule?.praktikum ?? 'Praktikum'}</ThemedText>
@@ -110,9 +122,14 @@ export default function AsistenPresensiScreen() {
                   QR berlaku untuk sesi ini selama sesi masih dibuka.
                 </ThemedText>
               </BlurView>
-            );
-          })}
-          {openSessions.map((session) => {
+              );
+              }}
+            />
+          )}
+          <PaginatedCards
+            items={openSessions}
+            keyExtractor={(session) => `manual-${session.id}`}
+            renderItem={(session) => {
             const schedule = getScheduleForSession(session.id);
             if (!schedule?.classId) return null;
             const sessionParticipants = participants
@@ -122,7 +139,7 @@ export default function AsistenPresensiScreen() {
               .sort((a, b) => a.name.localeCompare(b.name));
 
             return (
-              <BlurView key={`manual-${session.id}`} intensity={42} tint="light" style={[styles.card, styles.glassCard, { borderColor: theme.glassBorder }]}>
+              <BlurView intensity={42} tint="light" style={[styles.card, styles.glassCard, { borderColor: theme.glassBorder }]}>
                 <View style={styles.manualHeading}>
                   <View style={styles.titleBlock}>
                     <ThemedText type="subtitle">Presensi Manual</ThemedText>
@@ -133,7 +150,12 @@ export default function AsistenPresensiScreen() {
                 {manualError ? <ThemedText type="small" style={{ color: theme.danger }}>{manualError}</ThemedText> : null}
                 {sessionParticipants.length === 0 ? (
                   <ThemedText type="small" themeColor="textSecondary">Belum ada praktikan terdaftar pada kelas ini.</ThemedText>
-                ) : sessionParticipants.map((participant) => {
+                ) : (
+                  <PaginatedCards
+                    items={sessionParticipants}
+                    keyExtractor={(participant) => participant.id}
+                    pageSize={8}
+                    renderItem={(participant) => {
                   const record = attendance.find((item) => item.sessionId === session.id && item.userId === participant.id);
                   const busy = manualBusyId === `${session.id}_${participant.id}`;
                   const statusLabel = record?.status === 'present'
@@ -144,7 +166,7 @@ export default function AsistenPresensiScreen() {
                         ? record.manualReason === 'sakit' ? 'Sakit' : 'Izin'
                         : null;
                   return (
-                    <View key={participant.id} style={[styles.participantRow, { borderTopColor: theme.glassBorder }]}>
+                    <View style={[styles.participantRow, { borderTopColor: theme.glassBorder }]}>
                       <View style={styles.titleBlock}>
                         <ThemedText type="smallBold">{participant.name}</ThemedText>
                         <ThemedText type="small" themeColor="textSecondary">{participant.identityNumber}</ThemedText>
@@ -162,18 +184,14 @@ export default function AsistenPresensiScreen() {
                         </Pressable>
                       )}
                     </View>
-                  );
-                })}
+                    );
+                    }}
+                  />
+                )}
               </BlurView>
-            );
-          })}
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal')}
-            style={({ pressed }) => [styles.backButton, { borderColor: theme.glassBorder, backgroundColor: theme.glassCard }, pressed && styles.pressed]}
-          >
-            <ThemedText type="smallBold" style={{ color: theme.primary }}>← Kembali</ThemedText>
-          </Pressable>
+              );
+            }}
+          />
         </ScrollView>
         <Modal visible={manualTarget !== null} transparent animationType="fade" onRequestClose={() => { if (manualBusyId === null) setManualTarget(null); }}>
           <View style={styles.modalBackdrop}>

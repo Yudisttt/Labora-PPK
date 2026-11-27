@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { DashboardCapsule } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -38,14 +40,7 @@ export default function PraktikanNotifikasiScreen() {
     <ThemedView style={[styles.screen, { backgroundColor: theme.background }]}>
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}>
-          <Pressable accessibilityRole="button" onPress={() => router.back()}>
-            <ThemedText type="smallBold" style={{ color: theme.primary }}>‹ Kembali</ThemedText>
-          </Pressable>
-          <ThemedText type="subtitle" style={styles.title}>Pemberitahuan</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            Kabar sesi, perubahan jadwal, dan keputusan pengajuan izin.
-          </ThemedText>
-
+          <DashboardCapsule title="Pemberitahuan" subtitle="Kabar sesi, perubahan jadwal, dan keputusan pengajuan izin." showGreeting={false} />
           {loading ? (
             <ActivityIndicator style={styles.state} color={theme.primary} />
           ) : error ? (
@@ -66,21 +61,26 @@ export default function PraktikanNotifikasiScreen() {
                 Pemberitahuan akan muncul di sini meskipun notifikasi perangkat tidak aktif.
               </ThemedText>
             </View>
-          ) : notifications.map((notification) => (
-            <Pressable
-              key={notification.id}
-              accessibilityRole="button"
-              onPress={() => router.push(notification.destination === 'praktikan/izin' ? '/praktikan/izin' : '/praktikan/jadwal')}
-              style={({ pressed }) => [styles.card, { backgroundColor: theme.glassInput, borderColor: theme.border }, pressed && styles.pressed]}>
-              <ThemedText type="smallBold">{notification.title}</ThemedText>
-              <ThemedText type="small">{notification.body}</ThemedText>
-              {notification.createdAt ? (
-                <ThemedText type="small" themeColor="textSecondary">
-                  {notification.createdAt.toLocaleString('id-ID')}
-                </ThemedText>
-              ) : null}
-            </Pressable>
-          ))}
+          ) : (
+            <PaginatedCards
+              items={notifications}
+              keyExtractor={(notification) => notification.id}
+              renderItem={(notification) => (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.push(notification.destination === 'praktikan/izin' ? '/praktikan/izin' : '/praktikan/jadwal')}
+                  style={({ pressed }) => [styles.card, { backgroundColor: theme.glassInput, borderColor: theme.border }, pressed && styles.pressed]}>
+                  <ThemedText type="smallBold">{notification.title}</ThemedText>
+                  <ThemedText type="small">{notification.body}</ThemedText>
+                  {notification.createdAt ? (
+                    <ThemedText type="small" themeColor="textSecondary">
+                      {notification.createdAt.toLocaleString('id-ID')}
+                    </ThemedText>
+                  ) : null}
+                </Pressable>
+              )}
+            />
+          )}
         </ScrollView>
       </SafeAreaView>
     </ThemedView>
@@ -90,7 +90,7 @@ export default function PraktikanNotifikasiScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   safeArea: { flex: 1 },
-  content: { gap: Spacing.three, padding: Spacing.four },
+  content: { gap: Spacing.three, padding: Spacing.three },
   title: { marginTop: Spacing.two },
   state: { marginTop: Spacing.five },
   card: { gap: Spacing.two, borderWidth: StyleSheet.hairlineWidth, borderRadius: 18, padding: Spacing.three },

@@ -10,6 +10,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DashboardCapsule } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
 import { SessionStatusBadge } from '@/components/session-status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -107,6 +108,12 @@ export default function KelolaJadwalScreen() {
           <DashboardCapsule
             title="Kelola Jadwal"
             subtitle="Pilih tanggal untuk melihat jadwal praktikum"
+            showGreeting={false}
+            stats={[]}
+            backAction={{
+              label: 'Kembali',
+              onPress: () => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal'),
+            }}
           />
 
           <View
@@ -267,23 +274,19 @@ export default function KelolaJadwalScreen() {
                 </ThemedText>
               </View>
             ) : (
-              selectedSchedules.map((schedule) => (
-                <ScheduleDateCard
-                  key={schedule.id}
-                  schedule={schedule}
-                  getUser={getUser}
-                  getSessionsForSchedule={getSessionsForSchedule}
-                />
-              ))
+              <PaginatedCards
+                items={selectedSchedules}
+                keyExtractor={(schedule) => schedule.id}
+                renderItem={(schedule) => (
+                  <ScheduleDateCard
+                    schedule={schedule}
+                    getUser={getUser}
+                    getSessionsForSchedule={getSessionsForSchedule}
+                  />
+                )}
+              />
             )}
           </View>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.canGoBack() ? router.back() : router.replace('/asisten/jadwal')}
-            style={({ pressed }) => [styles.backButton, { borderColor: theme.glassBorder, backgroundColor: theme.glassCard }, pressed && styles.pressed]}
-          >
-            <ThemedText type="smallBold" style={{ color: theme.primary }}>← Kembali</ThemedText>
-          </Pressable>
         </ScrollView>
       </SafeAreaView>
     </ThemedView>

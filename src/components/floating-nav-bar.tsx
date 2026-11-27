@@ -50,7 +50,7 @@ export function FloatingNavBar({ tabs }: FloatingNavBarProps) {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={tab.label}
-                    onPress={tab.onPress ?? (() => router.push(tab.route as Parameters<typeof router.push>[0]))}
+                    onPress={tab.onPress ?? (() => router.navigate(tab.route as Parameters<typeof router.navigate>[0]))}
                     style={({ pressed }) => [
                       tab.onPress ? styles.backButton : styles.diamondButton,
                       {
@@ -77,7 +77,7 @@ export function FloatingNavBar({ tabs }: FloatingNavBarProps) {
                 key={tab.key}
                 accessibilityRole="button"
                 accessibilityLabel={tab.label}
-                onPress={() => router.push(tab.route as Parameters<typeof router.push>[0])}
+                onPress={() => router.navigate(tab.route as Parameters<typeof router.navigate>[0])}
                 style={({ pressed }) => [
                   styles.tabItem,
                   pressed && styles.pressed,

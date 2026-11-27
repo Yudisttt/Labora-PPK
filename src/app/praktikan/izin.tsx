@@ -4,18 +4,18 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SessionStatusBadge } from '@/components/session-status-badge';
+import { DashboardCapsule } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { submitPermissionRequest, subscribeToPermissionRequestsForUser } from '@/services/permission-requests';
-import { classifyPermissionReason } from '@/services/permission-sentiment';
+import { subscribeToPermissionRequestsForUser } from '@/services/permission-requests';
 import { useApp } from '@/state/app-context';
 import type { PermissionAiPrediction, PermissionRequest, Session } from '@/types';
 import { formatDate, formatDateTime } from '@/utils/format';
@@ -71,18 +71,12 @@ export default function PraktikanIzinScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { currentUser, sessions, getSchedule } = useApp();
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
   const [requestState, setRequestState] = useState<{
     userId: string;
     requests: PermissionRequest[];
     error: string | null;
   } | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-  const [submitCanRetry, setSubmitCanRetry] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
-  const [aiPrediction, setAiPrediction] = useState<PermissionAiPrediction | null>(null);
 
   const availableSessions = useMemo(() => {
     const currentSessionBySchedule = new Map<string, Session>();
@@ -130,60 +124,6 @@ export default function PraktikanIzinScreen() {
   const requestsLoading = Boolean(currentUser && !requestStateIsCurrent);
   const requestsError = requestStateIsCurrent ? requestState?.error ?? null : null;
 
-  const selectedSession = availableSessions.find(
-    (session) => session.id === selectedSessionId,
-  );
-
-  async function handleSubmit() {
-    if (!currentUser || currentUser.role !== 'praktikan') {
-      setSubmitMessage('Hanya praktikan yang dapat mengajukan izin.');
-      return;
-    }
-
-    if (!selectedSession) {
-      setSubmitMessage('Pilih sesi praktikum yang akan diajukan izinnya.');
-      return;
-    }
-
-    if (!reason.trim()) {
-      setSubmitMessage('Tuliskan alasan izin terlebih dahulu.');
-      return;
-    }
-
-    setSubmitting(true);
-    setSubmitMessage(null);
-    setSubmitCanRetry(false);
-    const prediction = classifyPermissionReason(reason);
-    setAiPrediction(prediction);
-
-    try {
-      await submitPermissionRequest({
-        sessionId: selectedSession.id,
-        userId: currentUser.id,
-        userName: currentUser.name,
-        reason,
-        aiPrediction: prediction,
-      });
-      setReason('');
-      setSelectedSessionId(null);
-      setSubmitMessage('Pengajuan izin berhasil dikirim. Statusnya menunggu pemeriksaan asisten.');
-    } catch (error) {
-      setSubmitMessage(
-        getErrorMessage(error),
-      );
-      const code = typeof error === 'object' && error !== null && 'code' in error
-        ? String(error.code)
-        : '';
-      const message = error instanceof Error ? error.message.toLowerCase() : '';
-      setSubmitCanRetry(
-        code === 'unavailable' || code === 'network-request-failed' ||
-        message.includes('network') || message.includes('unavailable'),
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   function sessionTitle(session: Session) {
     const schedule = getSchedule(session.scheduleId);
     return schedule
@@ -203,198 +143,20 @@ export default function PraktikanIzinScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: insets.bottom + 95 },
+            { paddingBottom: insets.bottom + 160 },
           ]}
           keyboardShouldPersistTaps="handled"
         >
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.back()}
-            style={({ pressed }) => [
-              styles.backButton,
-              { borderColor: '#C8B995' },
-              pressed && styles.pressed,
+          <DashboardCapsule
+            title="Perizinan"
+            subtitle="Pantau status pengajuan izin praktikummu."
+            tone="light"
+            stats={[
+              { label: 'Sesi Tersedia', value: availableSessions.length },
+              { label: 'Pengajuan Saya', value: requests.length },
+              { label: 'Disetujui', value: requests.filter((item) => item.status === 'approved').length },
             ]}
-          >
-            <ThemedText type="smallBold" style={{ color: theme.primary }}>
-              ← Kembali
-            </ThemedText>
-          </Pressable>
-
-          <View
-            style={[
-              styles.headerCard,
-              { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
-            ]}
-          >
-            <ThemedText type="subtitle" style={styles.headerTitle}>
-              Pengajuan Izin
-            </ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Pilih sesi praktikum dan jelaskan alasan ketidakhadiranmu.
-            </ThemedText>
-
-            <View style={styles.headerStatRow}>
-              {[
-                { label: 'Sesi Tersedia', value: availableSessions.length },
-                { label: 'Pengajuan Saya', value: requests.length },
-                {
-                  label: 'Disetujui',
-                  value: requests.filter((item) => item.status === 'approved')
-                    .length,
-                },
-              ].map((stat) => (
-                <View
-                  key={stat.label}
-                  style={[
-                    styles.headerStatCard,
-                    { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
-                  ]}
-                >
-                  <ThemedText
-                    type="smallBold"
-                    style={[styles.headerStatValue, { color: theme.primary }]}
-                  >
-                    {stat.value}
-                  </ThemedText>
-                  <ThemedText type="small" themeColor="textSecondary">
-                    {stat.label}
-                  </ThemedText>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View
-            style={[
-              styles.formCard,
-              { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
-            ]}
-          >
-            <ThemedText type="smallBold">Pilih sesi</ThemedText>
-            {availableSessions.length === 0 ? (
-              <ThemedText type="small" themeColor="textSecondary">
-                Belum ada sesi yang dapat dipilih.
-              </ThemedText>
-            ) : (
-              <View style={styles.sessionList}>
-                {availableSessions.map((session) => {
-                  const schedule = getSchedule(session.scheduleId);
-                  const selected = session.id === selectedSessionId;
-
-                  return (
-                    <Pressable
-                      key={session.id}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected }}
-                      onPress={() => setSelectedSessionId(session.id)}
-                      style={({ pressed }) => [
-                        styles.sessionOption,
-                        {
-                          backgroundColor: selected
-                            ? 'rgba(136, 144, 99, 0.24)'
-                            : 'rgba(255, 255, 255, 0.42)',
-                          backgroundImage: selected
-                            ? `linear-gradient(145deg, rgba(255, 255, 255, 0.82) 0%, rgba(136, 144, 99, 0.24) 100%)`
-                            : 'linear-gradient(145deg, rgba(255, 255, 255, 0.78) 0%, rgba(237, 228, 213, 0.5) 100%)',
-                          borderColor: selected ? theme.glassBorderHighlight : 'rgba(255, 255, 255, 0.82)',
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <View style={styles.sessionCopy}>
-                        <ThemedText type="smallBold">{sessionTitle(session)}</ThemedText>
-                        {schedule ? (
-                          <ThemedText type="small" themeColor="textSecondary">
-                            {formatDate(schedule.date)} · {schedule.startTime}–{schedule.endTime} WIB
-                          </ThemedText>
-                        ) : null}
-                      </View>
-                      <SessionStatusBadge status={session.status} />
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-
-            <View style={styles.reasonHeader}>
-              <ThemedText type="smallBold">Alasan izin</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                {reason.length}/1000
-              </ThemedText>
-            </View>
-            <TextInput
-              accessibilityLabel="Alasan pengajuan izin"
-              value={reason}
-              onChangeText={(value) => {
-                setReason(value);
-                setAiPrediction(null);
-              }}
-              placeholder="Ceritakan alasan kamu tidak dapat mengikuti praktikum..."
-              placeholderTextColor={theme.textSecondary}
-              multiline
-              maxLength={1000}
-              textAlignVertical="top"
-              style={[
-                styles.reasonInput,
-                {
-                  color: theme.text,
-                  backgroundColor: 'rgba(247, 241, 231, 0.58)',
-                  backgroundImage: 'linear-gradient(145deg, rgba(255, 255, 255, 0.8) 0%, rgba(237, 228, 213, 0.52) 100%)',
-                  borderColor: theme.glassBorderHighlight,
-                },
-              ]}
-            />
-
-            {aiPrediction ? (
-              <View style={[styles.aiBox, { backgroundColor: theme.warningSoft }]}>
-                <ThemedText type="smallBold">
-                  Klasifikasi alasan AI: {predictionLabel(aiPrediction)}
-                </ThemedText>
-                <ThemedText type="small">
-                  Hasil klasifikasi ini hanya informasi pendukung. Asisten tetap memeriksa alasan dan menentukan keputusan izin.
-                </ThemedText>
-              </View>
-            ) : null}
-
-            {submitMessage ? (
-              <View
-                accessibilityRole="alert"
-                style={[
-                  styles.messageBox,
-                  {
-                    backgroundColor: submitMessage.startsWith('Pengajuan')
-                      ? theme.successSoft
-                      : theme.dangerSoft,
-                  },
-                ]}
-              >
-                <ThemedText type="small">{submitMessage}</ThemedText>
-                {submitCanRetry ? (
-                  <Pressable accessibilityRole="button" onPress={() => void handleSubmit()}>
-                    <ThemedText type="smallBold" style={{ color: theme.primary }}>Coba kirim lagi</ThemedText>
-                  </Pressable>
-                ) : null}
-              </View>
-            ) : null}
-
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ disabled: submitting }}
-              disabled={submitting}
-              onPress={handleSubmit}
-              style={({ pressed }) => [
-                styles.submitButton,
-                { backgroundColor: theme.primary, opacity: submitting ? 0.65 : 1 },
-                pressed && !submitting && styles.pressed,
-              ]}
-            >
-              <ThemedText type="smallBold" style={{ color: theme.primaryText }}>
-                {submitting ? 'Mengirim...' : 'Kirim Pengajuan Izin'}
-              </ThemedText>
-            </Pressable>
-          </View>
-
+          />
           <View style={styles.historySection}>
             <ThemedText type="smallBold" style={styles.sectionTitle}>
               Pengajuan Saya
@@ -424,7 +186,10 @@ export default function PraktikanIzinScreen() {
               </View>
             ) : (
               <View style={styles.requestList}>
-                {requests.map((request) => {
+                <PaginatedCards
+                  items={requests}
+                  keyExtractor={(request) => request.id}
+                  renderItem={(request) => {
                   const requestSession = sessions.find(
                     (session) => session.id === request.sessionId,
                   );
@@ -434,7 +199,6 @@ export default function PraktikanIzinScreen() {
 
                   return (
                     <View
-                      key={request.id}
                       style={[
                         styles.requestCard,
                         { backgroundColor: '#F7F1E7', borderColor: '#C8B995' },
@@ -501,11 +265,28 @@ export default function PraktikanIzinScreen() {
                       </View>
                     </View>
                   );
-                })}
+                  }}
+                />
               </View>
             )}
           </View>
         </ScrollView>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Ajukan izin baru"
+          onPress={() => router.push('/praktikan/ajukan-izin')}
+          style={({ pressed }) => [
+            styles.fab,
+            {
+              bottom: Math.max(insets.bottom, 16) + 86,
+              backgroundColor: theme.primary,
+              borderColor: theme.glassBorderHighlight,
+            },
+            pressed && styles.pressed,
+          ]}>
+          <Ionicons name="add" size={22} color={theme.primaryText} />
+          <ThemedText type="smallBold" style={{ color: theme.primaryText }}>Ajukan Izin Baru</ThemedText>
+        </Pressable>
       </SafeAreaView>
     </ThemedView>
   );
@@ -518,7 +299,7 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: MaxContentWidth,
     alignSelf: 'center',
-    paddingHorizontal: Spacing.four,
+    paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.four,
     gap: Spacing.four,
   },
@@ -603,19 +384,20 @@ const styles = StyleSheet.create({
   requestCard: {
     padding: Spacing.three,
     gap: Spacing.two,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1.5,
+    overflow: 'hidden',
   },
   requestHeader: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
     gap: Spacing.two,
   },
-  requestHeading: { flex: 1, gap: 2 },
+  requestHeading: { alignSelf: 'stretch', gap: 2 },
   statusPill: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 2,
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 6,
     borderRadius: 999,
   },
   detailBox: {
@@ -625,5 +407,22 @@ const styles = StyleSheet.create({
     gap: Spacing.half,
   },
   requestMetaRow: { gap: 2 },
+  fab: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    minHeight: 50,
+    paddingHorizontal: Spacing.four,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    shadowColor: '#354024',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 9,
+    zIndex: 20,
+  },
   pressed: { opacity: 0.75 },
 });

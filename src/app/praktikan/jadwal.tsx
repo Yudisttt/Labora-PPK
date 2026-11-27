@@ -1,21 +1,36 @@
+import { BlurView } from 'expo-blur';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DashboardCapsule, DashboardTabs } from '@/components/dashboard-ui';
+import { PaginatedCards } from '@/components/paginated-cards';
 import { SessionStatusBadge } from '@/components/session-status-badge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { useApp } from '@/state/app-context';
 import { subscribeToPermissionRequestsForUser } from '@/services/permission-requests';
+import { useApp } from '@/state/app-context';
 import type { AttendanceRecord, PermissionRequest, Schedule, Session } from '@/types';
 import { formatDate, formatDateTime } from '@/utils/format';
 
 const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+// Bentuk "daun": kiri-atas & kanan-bawah kecil, kanan-atas & kiri-bawah besar
+const LEAF_CARD = {
+  borderTopLeftRadius: 18,
+  borderTopRightRadius: 54,
+  borderBottomRightRadius: 18,
+  borderBottomLeftRadius: 40,
+} as const;
+const LEAF_SMALL = {
+  borderTopLeftRadius: 10,
+  borderTopRightRadius: 24,
+  borderBottomRightRadius: 10,
+  borderBottomLeftRadius: 24,
+} as const;
 
 const CALENDAR_PAGE_SIZE = 30;
 const CALENDAR_INITIAL_INDEX = CALENDAR_PAGE_SIZE;
@@ -220,6 +235,21 @@ export default function PraktikanJadwalScreen() {
       <SafeAreaView style={styles.screen} edges={['top']}>
         <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 128 }]}>
           <DashboardCapsule
+            style={{
+              width: 'auto',
+              backgroundColor: 'transparent',
+              borderWidth: 0,
+              paddingTop: Spacing.four,
+              paddingBottom: 0,
+              borderTopLeftRadius: 0,
+              borderTopRightRadius: 0,
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 0,
+              shadowOpacity: 0,
+              elevation: 0,
+            }}
+            statsContainerStyle={{ justifyContent: 'center', gap: Spacing.five, marginTop: Spacing.two + Spacing.one }}
+            statStyle={{ maxWidth: 88, borderRadius: 22 }}
             title="Jadwal & Presensi"
             subtitle="Pantau kehadiran dan sesi aktifmu hari ini"
             stats={[
@@ -280,7 +310,11 @@ export default function PraktikanJadwalScreen() {
                   <ThemedText type="smallBold">{currentFilter === 'alpha' ? 'Tidak ada absensi alpha' : 'Belum ada riwayat presensi'}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">{currentFilter === 'alpha' ? 'Sesi berstatus alpha akan muncul di sini.' : 'Riwayat pertemuan akan muncul setelah tanggal sesinya tiba.'}</ThemedText>
                 </ThemedView>
-              ) : visibleHistoryGroups.map(({ praktikum, schedules: practicumEntries, meetings }) => {
+              ) : (
+                <PaginatedCards
+                  items={visibleHistoryGroups}
+                  keyExtractor={({ praktikum }) => praktikum}
+                  renderItem={({ praktikum, schedules: practicumEntries, meetings }) => {
                 const expanded = expandedPracticum === praktikum;
                 const presentCount = meetings.filter(({ record, session, schedule }) => getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Hadir').length;
                 const excusedCount = meetings.filter(({ record, session, schedule }) => getHistoryStatus(record, session, permissionRequests, schedule.date, todayDateKey) === 'Izin').length;
@@ -290,7 +324,7 @@ export default function PraktikanJadwalScreen() {
                 const laboratories = [...new Set(practicumEntries.map((schedule) => schedule.ruang))].join(', ');
 
                 return (
-                  <BlurView key={praktikum} intensity={68} tint="light" style={[styles.historyCard, { backgroundColor: 'rgba(255,255,255,0.54)', borderColor: expanded ? '#FFFFFF' : 'rgba(255,255,255,0.96)' }]}>
+                  <BlurView intensity={68} tint="light" style={[styles.historyCard, { backgroundColor: 'rgba(255,255,255,0.76)', borderColor: expanded ? '#FFFFFF' : 'rgba(255,255,255,0.96)' }]}>
                     <Pressable
                       accessibilityRole="button"
                       accessibilityState={{ expanded }}
@@ -314,7 +348,12 @@ export default function PraktikanJadwalScreen() {
                           <ThemedText type="small" themeColor="textSecondary">
                             Pertemuan akan muncul setelah tanggal pelaksanaannya tiba.
                           </ThemedText>
-                        ) : meetings.map(({ schedule, session, record }, index) => {
+                        ) : (
+                          <PaginatedCards
+                            items={meetings}
+                            keyExtractor={({ session }) => session.id}
+                            pageSize={5}
+                            renderItem={({ schedule, session, record }, index) => {
                           const matchingSeries = meetings.filter((meeting) => schedule.seriesId
                             ? meeting.schedule.seriesId === schedule.seriesId
                             : meeting.schedule.kelas === schedule.kelas &&
@@ -337,7 +376,7 @@ export default function PraktikanJadwalScreen() {
                             : null;
 
                           return (
-                            <View key={session.id} style={[styles.meetingRow, { borderTopColor: theme.glassBorder }]}>
+                            <View style={[styles.meetingRow, { borderTopColor: theme.glassBorder }]}>
                               <View style={styles.meetingInfo}>
                                 <ThemedText type="smallBold">Pertemuan {meetingNumber}</ThemedText>
                                 <ThemedText type="small" themeColor="textSecondary">
@@ -354,13 +393,17 @@ export default function PraktikanJadwalScreen() {
                               </View>
                               {status ? <ThemedText type="smallBold" style={{ color: statusColor }}>{status}</ThemedText> : null}
                             </View>
-                          );
-                        })}
+                            );
+                            }}
+                          />
+                        )}
                       </View>
                     ) : null}
                   </BlurView>
                 );
-              })}
+                  }}
+                />
+              )}
             </View>
           ) : weeklySchedules.length === 0 ? (
             <ThemedView type="backgroundElement" style={styles.empty}>
@@ -379,8 +422,12 @@ export default function PraktikanJadwalScreen() {
                 <ThemedText type="smallBold">{period}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">· {formatDate(selectedDateKey)}</ThemedText>
               </View>
-              {periodSchedules.map((schedule) => (
-                <View key={schedule.key} style={styles.agendaRow}>
+              <PaginatedCards
+                items={periodSchedules}
+                keyExtractor={(schedule) => schedule.key}
+                pageSize={4}
+                renderItem={(schedule) => (
+                <View style={styles.agendaRow}>
                   <View style={styles.timeRail}>
                     <ThemedText type="smallBold" style={{ color: theme.primary }}>{schedule.startTime}</ThemedText>
                     <View style={[styles.timeline, { backgroundColor: theme.border }]} />
@@ -390,8 +437,11 @@ export default function PraktikanJadwalScreen() {
                     style={[
                       styles.eventCard,
                       {
-                        backgroundColor: theme.glassCard,
-                        borderColor: 'rgba(255, 255, 255, 0.82)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.64)',
+                        borderColor: 'rgba(255, 255, 255, 0.94)',
+                        ...(Platform.OS === 'web'
+                          ? ({ backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' } as object)
+                          : {}),
                       },
                     ]}>
                     <ThemedText type="smallBold" style={styles.course}>{schedule.praktikum}</ThemedText>
@@ -410,7 +460,8 @@ export default function PraktikanJadwalScreen() {
                     </Pressable>
                   </View>
                 </View>
-              ))}
+                )}
+              />
             </View>
           ))}
         </ScrollView>
@@ -462,13 +513,13 @@ export default function PraktikanJadwalScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  content: { width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: Spacing.three, paddingTop: Spacing.four, paddingBottom: Spacing.three, gap: Spacing.three },
-  daySelector: { gap: Spacing.two, paddingVertical: Spacing.one },
-  dayChip: { width: 58, alignItems: 'center', gap: Spacing.half, paddingHorizontal: Spacing.one, paddingVertical: Spacing.two, borderWidth: 1, borderRadius: 19, overflow: 'hidden' },
+  content: { width: '100%', maxWidth: 560, alignSelf: 'center', paddingHorizontal: Spacing.three, paddingTop: 0, paddingBottom: Spacing.three, gap: Spacing.three },
+  daySelector: { gap: Spacing.two, paddingVertical: Spacing.one, marginTop: -Spacing.two },
+  dayChip: { width: 58, alignItems: 'center', gap: Spacing.half, paddingHorizontal: Spacing.one, paddingVertical: Spacing.two, borderWidth: 1, ...LEAF_SMALL, overflow: 'hidden' },
   dayChipSelected: { shadowColor: '#354024', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
   agendaGroup: { gap: Spacing.two },
   historyList: { gap: Spacing.three },
-  historyCard: { padding: Spacing.three, borderWidth: 1, borderRadius: 23, gap: Spacing.one, overflow: 'hidden', shadowColor: '#FFFFFF', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.2, shadowRadius: 14, elevation: 3 },
+  historyCard: { padding: Spacing.three, borderWidth: 1, ...LEAF_CARD, gap: Spacing.one, overflow: 'hidden', shadowColor: '#354024', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 4 },
   historyToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.two, minHeight: 40 },
   historyTitleBlock: { flex: 1, gap: Spacing.half },
   historySummary: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.three },
@@ -480,7 +531,7 @@ const styles = StyleSheet.create({
   agendaRow: { flexDirection: 'row', alignItems: 'stretch', gap: Spacing.two },
   timeRail: { width: 52, alignItems: 'center', paddingTop: Spacing.two, gap: Spacing.one },
   timeline: { flex: 1, width: 1, minHeight: 22, opacity: 0.55 },
-  eventCard: { flex: 1, padding: Spacing.three, borderWidth: 1, borderRadius: 23, gap: Spacing.one, overflow: 'hidden', shadowColor: '#354024', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 14, elevation: 3 },
+  eventCard: { flex: 1, padding: Spacing.three, borderWidth: 1, ...LEAF_CARD, gap: Spacing.one, overflow: 'hidden', shadowColor: '#354024', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.14, shadowRadius: 18, elevation: 5 },
   course: { flexShrink: 1 },
   eventFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.one },
   detailButton: { alignSelf: 'flex-start', borderWidth: 1, borderRadius: 999, paddingHorizontal: Spacing.two, paddingVertical: Spacing.one, marginTop: Spacing.one },

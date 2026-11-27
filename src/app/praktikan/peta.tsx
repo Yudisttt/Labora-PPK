@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { BackButton } from '@/components/back-button';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -87,15 +87,8 @@ export default function PraktikanPetaScreen() {
   return (
     <ThemedView style={styles.screen}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {/* Header Bar */}
         <View style={styles.headerBar}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Kembali"
-            onPress={() => router.canGoBack() ? router.back() : router.replace('/praktikan/jadwal')}
-            style={({ pressed }) => [styles.roundIconBtn, pressed && styles.pressed]}>
-            <Ionicons name="arrow-back" size={20} color="#354024" />
-          </Pressable>
+          <BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/praktikan/jadwal')} />
 
           <View style={styles.headerTitleGroup}>
             <ThemedText type="smallBold" style={styles.headerTitle}>
@@ -249,17 +242,15 @@ export default function PraktikanPetaScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#E5D7C4',
+    backgroundColor: '#F0E6D8',
   },
   safeArea: {
     flex: 1,
   },
   headerBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 10,
+    gap: 8,
     backgroundColor: 'rgba(253, 251, 247, 0.92)',
     borderBottomWidth: 1,
     borderColor: 'rgba(136, 144, 99, 0.25)',
@@ -279,8 +270,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(136, 144, 99, 0.3)',
   },
   headerTitleGroup: {
-    flex: 1,
-    marginLeft: 12,
+    gap: 2,
   },
   headerTitle: {
     fontSize: 16,

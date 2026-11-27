@@ -40,7 +40,7 @@ function generateLeafletHtml(
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body, #map { width: 100%; height: 100%; background: #E5D7C4; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    html, body, #map { width: 100%; height: 100%; background: #F0E6D8; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 
     /* User Location Pulsing Dot */
     .user-pulse-container {
@@ -87,7 +87,7 @@ function generateLeafletHtml(
     .lab-marker-badge {
       background: #354024;
       color: #FFFFFF;
-      border: 2px solid #E5D7C4;
+      border: 2px solid #F0E6D8;
       border-radius: 20px;
       padding: 4px 10px;
       font-size: 11px;
@@ -549,7 +549,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     position: 'relative',
-    backgroundColor: '#E5D7C4',
+    backgroundColor: '#F0E6D8',
     overflow: 'hidden',
   },
   webIframe: {
@@ -561,7 +561,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
-    backgroundColor: '#E5D7C4',
+    backgroundColor: '#F0E6D8',
   },
   center: {
     alignItems: 'center',
